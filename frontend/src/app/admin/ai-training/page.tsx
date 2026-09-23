@@ -1,10 +1,18 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Play, Upload, Clock, CheckCircle, XCircle, AlertCircle, Plus } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import React, { useState } from 'react';
+import { AlertCircle, BrainCircuit, CheckCircle2, Clock, Loader2, Plus, XCircle } from 'lucide-react';
+import { PageHeader } from '@/components/layout/app-shell';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge, type BadgeTone } from '@/components/ui/badge';
+import { Modal } from '@/components/ui/modal';
+import { EmptyState, ErrorState, Skeleton } from '@/components/ui/feedback';
+import { toast } from '@/store/toast-store';
 import { api } from '@/lib/api';
+import { cn, formatRelativeTime, getErrorMessage } from '@/lib/utils';
+import { useApi } from '@/lib/hooks';
 
 interface Training {
   _id: string;
@@ -13,291 +21,193 @@ interface Training {
   status: 'pending' | 'training' | 'completed' | 'failed';
   datasetSize?: number;
   epochs?: number;
+  batchSize?: number;
+  learningRate?: number;
   accuracy?: number;
   loss?: number;
-  trainingTime?: number;
   errorMessage?: string;
   createdAt: string;
 }
 
+const statusMeta: Record<Training['status'], { label: string; tone: BadgeTone; icon: React.ReactNode; iconClass: string }> = {
+  pending: { label: 'Pending', tone: 'warning', icon: <Clock />, iconClass: 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300' },
+  training: {
+    label: 'Training',
+    tone: 'brand',
+    icon: <Loader2 className="animate-spin" />,
+    iconClass: 'bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-300',
+  },
+  completed: {
+    label: 'Completed',
+    tone: 'success',
+    icon: <CheckCircle2 />,
+    iconClass: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300',
+  },
+  failed: { label: 'Failed', tone: 'danger', icon: <XCircle />, iconClass: 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300' },
+};
+
+async function fetchTrainings(): Promise<Training[]> {
+  const data = await api.ai.getTrainingHistory();
+  return Array.isArray(data) ? data : [];
+}
+
+const emptyForm = { trainingName: '', modelVersion: '', datasetSize: '', epochs: '10', batchSize: '32', learningRate: '0.001' };
+
 export default function AITrainingPage() {
-  const [trainings, setTrainings] = useState<Training[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, error, reload: load } = useApi(fetchTrainings, 'Could not load training history.');
+  const trainings = data ?? [];
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({
-    trainingName: '',
-    modelVersion: '',
-    datasetSize: 0,
-    epochs: 10,
-    batchSize: 32,
-    learningRate: 0.001,
-  });
+  const [form, setForm] = useState(emptyForm);
+  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetchTrainings();
-  }, []);
-
-  const fetchTrainings = async () => {
-    try {
-      const data = await api.ai.getTrainingHistory();
-      setTrainings(data);
-    } catch (error) {
-      console.error('Failed to fetch training history');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const set = (key: keyof typeof emptyForm) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
     try {
-      await api.ai.createTraining(formData);
-      setShowForm(false);
-      setFormData({
-        trainingName: '',
-        modelVersion: '',
-        datasetSize: 0,
-        epochs: 10,
-        batchSize: 32,
-        learningRate: 0.001,
+      const num = (v: string) => (v.trim() === '' ? undefined : Number(v));
+      await api.ai.createTraining({
+        trainingName: form.trainingName.trim(),
+        modelVersion: form.modelVersion.trim(),
+        datasetSize: num(form.datasetSize),
+        epochs: num(form.epochs),
+        batchSize: num(form.batchSize),
+        learningRate: num(form.learningRate),
       });
-      fetchTrainings();
-    } catch (error) {
-      console.error('Failed to create training');
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="w-5 h-5 text-green-600" />;
-      case 'failed':
-        return <XCircle className="w-5 h-5 text-red-600" />;
-      case 'training':
-        return <Play className="w-5 h-5 text-blue-600" />;
-      default:
-        return <Clock className="w-5 h-5 text-yellow-600" />;
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
-      case 'failed':
-        return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
-      case 'training':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
-      default:
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400';
+      toast.success('Training session created', `${form.trainingName} has been queued.`);
+      setShowForm(false);
+      setForm(emptyForm);
+      load();
+    } catch (err) {
+      toast.error('Could not create training session', getErrorMessage(err));
+    } finally {
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between"
-      >
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-            AI Training
-          </h1>
-          <p className="text-slate-600 dark:text-slate-300">
-            Manage and monitor AI model training sessions
-          </p>
+    <>
+      <PageHeader
+        title="AI Training"
+        description="Create and monitor model training sessions."
+        actions={
+          <Button onClick={() => setShowForm(true)}>
+            <Plus />
+            New training
+          </Button>
+        }
+      />
+
+      {error ? (
+        <ErrorState message={error} onRetry={load} />
+      ) : loading ? (
+        <div className="space-y-4">
+          {[0, 1, 2].map((i) => (
+            <Card key={i}>
+              <CardContent className="flex gap-4">
+                <Skeleton className="size-10 rounded-xl" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-48" />
+                  <Skeleton className="h-3 w-24" />
+                  <Skeleton className="mt-3 h-10 w-full" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          New Training
-        </button>
-      </motion.div>
+      ) : trainings.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon={<BrainCircuit />}
+            title="No training sessions yet"
+            description="Start a training session to improve recognition accuracy."
+            action={
+              <Button onClick={() => setShowForm(true)} size="sm">
+                <Plus />
+                New training
+              </Button>
+            }
+          />
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {trainings.map((t) => {
+            const meta = statusMeta[t.status] ?? statusMeta.pending;
+            const metrics = [
+              { label: 'Dataset', value: t.datasetSize?.toLocaleString() },
+              { label: 'Epochs', value: t.epochs },
+              { label: 'Batch size', value: t.batchSize },
+              { label: 'Learning rate', value: t.learningRate },
+              { label: 'Accuracy', value: t.accuracy !== undefined ? `${(t.accuracy * 100).toFixed(2)}%` : undefined },
+              { label: 'Loss', value: t.loss !== undefined ? t.loss.toFixed(4) : undefined },
+            ].filter((m) => m.value !== undefined && m.value !== null);
 
-      {showForm && (
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle>Create New Training Session</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Training Name
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.trainingName}
-                    onChange={(e) => setFormData({ ...formData, trainingName: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Model Version
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.modelVersion}
-                    onChange={(e) => setFormData({ ...formData, modelVersion: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    required
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                      Dataset Size
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.datasetSize}
-                      onChange={(e) => setFormData({ ...formData, datasetSize: parseInt(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                      Epochs
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.epochs}
-                      onChange={(e) => setFormData({ ...formData, epochs: parseInt(e.target.value) || 10 })}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                      Batch Size
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.batchSize}
-                      onChange={(e) => setFormData({ ...formData, batchSize: parseInt(e.target.value) || 32 })}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                      Learning Rate
-                    </label>
-                    <input
-                      type="number"
-                      step="0.0001"
-                      value={formData.learningRate}
-                      onChange={(e) => setFormData({ ...formData, learningRate: parseFloat(e.target.value) || 0.001 })}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Start Training
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowForm(false)}
-                    className="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300 transition-colors dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      <div className="grid gap-4">
-        {loading ? (
-          <div className="text-center py-8 text-slate-500">Loading training history...</div>
-        ) : trainings.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-slate-500">
-              <Upload className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-              <p>No training sessions found. Create your first training session.</p>
-            </CardContent>
-          </Card>
-        ) : (
-          trainings.map((training, index) => (
-            <motion.div
-              key={training._id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
-            >
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                          {training.trainingName}
-                        </h3>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(training.status)}`}>
-                          {training.status}
-                        </span>
-                      </div>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">
-                        Version: {training.modelVersion}
+            return (
+              <Card key={t._id}>
+                <CardContent className="flex gap-4">
+                  <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5', meta.iconClass)}>{meta.icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <h2 className="font-semibold text-foreground">{t.trainingName}</h2>
+                      <Badge tone={meta.tone} dot>
+                        {meta.label}
+                      </Badge>
+                      <span className="ml-auto text-xs text-subtle">{formatRelativeTime(t.createdAt)}</span>
+                    </div>
+                    <p className="mt-0.5 font-mono text-xs text-muted">v{t.modelVersion.replace(/^v/i, '')}</p>
+                    {metrics.length > 0 && (
+                      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                        {metrics.map((m) => (
+                          <div key={m.label} className="rounded-lg bg-surface-muted px-3 py-2">
+                            <dt className="text-[11px] font-medium uppercase tracking-wider text-subtle">{m.label}</dt>
+                            <dd className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">{m.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                    {t.errorMessage && (
+                      <p className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
+                        <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                        {t.errorMessage}
                       </p>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                        {training.datasetSize && (
-                          <div>
-                            <span className="text-slate-500 dark:text-slate-400">Dataset:</span>
-                            <span className="ml-2 font-medium text-slate-900 dark:text-white">{training.datasetSize}</span>
-                          </div>
-                        )}
-                        {training.epochs && (
-                          <div>
-                            <span className="text-slate-500 dark:text-slate-400">Epochs:</span>
-                            <span className="ml-2 font-medium text-slate-900 dark:text-white">{training.epochs}</span>
-                          </div>
-                        )}
-                        {training.accuracy !== undefined && (
-                          <div>
-                            <span className="text-slate-500 dark:text-slate-400">Accuracy:</span>
-                            <span className="ml-2 font-medium text-slate-900 dark:text-white">{(training.accuracy * 100).toFixed(2)}%</span>
-                          </div>
-                        )}
-                        {training.loss !== undefined && (
-                          <div>
-                            <span className="text-slate-500 dark:text-slate-400">Loss:</span>
-                            <span className="ml-2 font-medium text-slate-900 dark:text-white">{training.loss.toFixed(4)}</span>
-                          </div>
-                        )}
-                      </div>
-                      {training.errorMessage && (
-                        <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
-                          <div className="flex items-center gap-2 text-red-800 dark:text-red-400">
-                            <AlertCircle className="w-4 h-4" />
-                            <span className="text-sm">{training.errorMessage}</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 ml-4">
-                      {getStatusIcon(training.status)}
-                    </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
-            </motion.div>
-          ))
-        )}
-      </div>
-    </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Modal
+        isOpen={showForm}
+        onClose={() => !submitting && setShowForm(false)}
+        title="New training session"
+        description="Configure the model and hyperparameters."
+        size="lg"
+      >
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Input label="Training name" value={form.trainingName} onChange={set('trainingName')} placeholder="e.g. Kinyarwanda gestures" required />
+            <Input label="Model version" value={form.modelVersion} onChange={set('modelVersion')} placeholder="e.g. 1.2.0" required />
+          </div>
+          <div className="grid grid-cols-2 gap-5">
+            <Input label="Dataset size" type="number" min={0} value={form.datasetSize} onChange={set('datasetSize')} placeholder="Samples" />
+            <Input label="Epochs" type="number" min={1} value={form.epochs} onChange={set('epochs')} />
+            <Input label="Batch size" type="number" min={1} value={form.batchSize} onChange={set('batchSize')} />
+            <Input label="Learning rate" type="number" step="0.0001" min={0} value={form.learningRate} onChange={set('learningRate')} />
+          </div>
+          <div className="flex justify-end gap-2 border-t border-border pt-5">
+            <Button variant="outline" onClick={() => setShowForm(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button type="submit" isLoading={submitting}>
+              Start training
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </>
   );
 }

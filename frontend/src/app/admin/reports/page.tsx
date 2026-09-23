@@ -1,145 +1,243 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { FileText, Search, Filter, CheckCircle2, XCircle, Clock } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import React, { useMemo, useState } from 'react';
+import { Bug, FileWarning, Languages, Lightbulb, MessageCircle, Search } from 'lucide-react';
+import { PageHeader } from '@/components/layout/app-shell';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Input, Select, Textarea } from '@/components/ui/input';
+import { Badge, type BadgeTone } from '@/components/ui/badge';
+import { Modal } from '@/components/ui/modal';
+import { EmptyState, ErrorState, Skeleton } from '@/components/ui/feedback';
+import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { toast } from '@/store/toast-store';
+import { api } from '@/lib/api';
+import { cn, formatDate, getErrorMessage } from '@/lib/utils';
+import { useApi } from '@/lib/hooks';
+
+type Status = 'pending' | 'in-progress' | 'resolved' | 'closed';
+type ReportType = 'bug' | 'feature' | 'translation-error' | 'other';
 
 interface Report {
   _id: string;
-  type: string;
-  description: string;
-  status: 'pending' | 'resolved' | 'rejected';
+  reportType: ReportType;
+  message: string;
+  status: Status;
+  adminResponse?: string;
   createdAt: string;
-  userId: string;
+}
+
+const statusMeta: Record<Status, { label: string; tone: BadgeTone }> = {
+  pending: { label: 'Pending', tone: 'warning' },
+  'in-progress': { label: 'In progress', tone: 'brand' },
+  resolved: { label: 'Resolved', tone: 'success' },
+  closed: { label: 'Closed', tone: 'neutral' },
+};
+
+const typeMeta: Record<ReportType, { label: string; icon: React.ReactNode }> = {
+  bug: { label: 'Bug', icon: <Bug /> },
+  feature: { label: 'Feature request', icon: <Lightbulb /> },
+  'translation-error': { label: 'Translation error', icon: <Languages /> },
+  other: { label: 'Other', icon: <MessageCircle /> },
+};
+
+type Filter = 'all' | Status;
+
+async function fetchReports(): Promise<Report[]> {
+  const data = await api.admin.getReports();
+  return Array.isArray(data) ? data : [];
 }
 
 export default function AdminReportsPage() {
-  const [reports, setReports] = useState<Report[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const { data, loading, error, reload: load, mutate } = useApi(fetchReports, 'Could not load reports.');
+  const reports = useMemo(() => data ?? [], [data]);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<Report | null>(null);
+  const [draftStatus, setDraftStatus] = useState<Status>('pending');
+  const [draftResponse, setDraftResponse] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    // Mock data - in production, fetch from API
-    setReports([
-      { _id: '1', type: 'bug', description: 'Translation accuracy issue', status: 'pending', createdAt: '2024-01-25', userId: 'user1' },
-      { _id: '2', type: 'feature', description: 'Add new sign language', status: 'resolved', createdAt: '2024-01-20', userId: 'user2' },
-      { _id: '3', type: 'abuse', description: 'Inappropriate content', status: 'rejected', createdAt: '2024-01-18', userId: 'user3' },
-    ]);
-  }, []);
+  const counts = useMemo(() => {
+    const c: Record<Filter, number> = { all: reports.length, pending: 0, 'in-progress': 0, resolved: 0, closed: 0 };
+    reports.forEach((r) => {
+      if (r.status in c) c[r.status]++;
+    });
+    return c;
+  }, [reports]);
 
-  const filteredReports = reports.filter(report =>
-    report.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    report.type.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const visible = reports.filter((r) => {
+    if (filter !== 'all' && r.status !== filter) return false;
+    const q = search.trim().toLowerCase();
+    return !q || r.message.toLowerCase().includes(q) || (typeMeta[r.reportType]?.label ?? r.reportType).toLowerCase().includes(q);
+  });
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'resolved':
-        return <CheckCircle2 className="w-5 h-5 text-green-600" />;
-      case 'rejected':
-        return <XCircle className="w-5 h-5 text-red-600" />;
-      default:
-        return <Clock className="w-5 h-5 text-orange-600" />;
+  const openReport = (report: Report) => {
+    setSelected(report);
+    setDraftStatus(report.status);
+    setDraftResponse(report.adminResponse ?? '');
+  };
+
+  const saveReport = async () => {
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const updated = await api.admin.updateReportStatus(selected._id, draftStatus, draftResponse.trim() || undefined);
+      mutate((prev) =>
+        (prev ?? []).map((r) => (r._id === selected._id ? { ...r, ...(updated ?? {}), status: draftStatus, adminResponse: draftResponse.trim() } : r))
+      );
+      toast.success('Report updated');
+      setSelected(null);
+    } catch (err) {
+      toast.error('Could not update report', getErrorMessage(err));
+    } finally {
+      setSaving(false);
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'resolved':
-        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300';
-      case 'rejected':
-        return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
-      default:
-        return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
-    }
-  };
+  const filters: Filter[] = ['all', 'pending', 'in-progress', 'resolved', 'closed'];
 
   return (
-    <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-          Reports Management
-        </h1>
-        <p className="text-slate-600 dark:text-slate-300">
-          Review and manage user reports
-        </p>
-      </motion.div>
+    <>
+      <PageHeader title="Reports" description="Review and respond to issues reported by users." />
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="w-5 h-5" />
-              All Reports
-            </CardTitle>
-            <div className="flex gap-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  placeholder="Search reports..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 w-64"
-                />
-              </div>
-              <Button variant="outline">
-                <Filter className="w-4 h-4 mr-2" />
-                Filter
-              </Button>
-            </div>
+      <Card className="overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-border p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="-mx-1 flex gap-1 overflow-x-auto px-1 scrollbar-thin" role="tablist" aria-label="Filter by status">
+            {filters.map((f) => (
+              <button
+                key={f}
+                role="tab"
+                aria-selected={filter === f}
+                onClick={() => setFilter(f)}
+                className={cn(
+                  'flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                  filter === f ? 'bg-surface-muted text-foreground ring-1 ring-border' : 'text-muted hover:text-foreground'
+                )}
+              >
+                {f === 'all' ? 'All' : statusMeta[f].label}
+                <span className="rounded-full bg-surface-muted px-1.5 text-xs tabular-nums text-subtle ring-1 ring-border">{counts[f]}</span>
+              </button>
+            ))}
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-700">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-300">Type</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-300">Description</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-300">Status</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-300">Date</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-300">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredReports.map((report) => (
-                  <tr key={report._id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="py-3 px-4">
-                      <span className="capitalize text-slate-900 dark:text-white">{report.type}</span>
-                    </td>
-                    <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{report.description}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(report.status)}
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(report.status)}`}>
-                          {report.status}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{report.createdAt}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex gap-2">
-                        {report.status === 'pending' && (
-                          <>
-                            <Button variant="outline" size="sm">Resolve</Button>
-                            <Button variant="outline" size="sm">Reject</Button>
-                          </>
-                        )}
-                        <Button variant="ghost" size="sm">View</Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <Input
+            aria-label="Search reports"
+            placeholder="Search reports…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            icon={<Search />}
+            wrapperClassName="lg:max-w-xs"
+          />
+        </div>
+
+        {error ? (
+          <div className="p-4">
+            <ErrorState message={error} onRetry={load} />
           </div>
-        </CardContent>
+        ) : !loading && visible.length === 0 ? (
+          <EmptyState
+            icon={<FileWarning />}
+            title={reports.length === 0 ? 'No reports yet' : 'No matching reports'}
+            description={reports.length === 0 ? 'Reports submitted by users will appear here.' : 'Try a different filter or search.'}
+          />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Report</Th>
+                <Th>Status</Th>
+                <Th className="hidden md:table-cell">Submitted</Th>
+                <Th className="text-right">
+                  <span className="sr-only">Actions</span>
+                </Th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading
+                ? Array.from({ length: 5 }).map((_, i) => (
+                    <Tr key={i}>
+                      <Td>
+                        <div className="space-y-1.5">
+                          <Skeleton className="h-3.5 w-24" />
+                          <Skeleton className="h-3 w-64" />
+                        </div>
+                      </Td>
+                      <Td>
+                        <Skeleton className="h-5 w-20 rounded-full" />
+                      </Td>
+                      <Td className="hidden md:table-cell">
+                        <Skeleton className="h-3.5 w-20" />
+                      </Td>
+                      <Td />
+                    </Tr>
+                  ))
+                : visible.map((report) => {
+                    const type = typeMeta[report.reportType] ?? typeMeta.other;
+                    const status = statusMeta[report.status] ?? statusMeta.pending;
+                    return (
+                      <Tr key={report._id}>
+                        <Td className="max-w-md">
+                          <p className="flex items-center gap-1.5 text-xs font-medium text-subtle [&_svg]:size-3.5">
+                            {type.icon}
+                            {type.label}
+                          </p>
+                          <p className="mt-0.5 line-clamp-2 text-foreground">{report.message}</p>
+                        </Td>
+                        <Td>
+                          <Badge tone={status.tone} dot>
+                            {status.label}
+                          </Badge>
+                        </Td>
+                        <Td className="hidden whitespace-nowrap md:table-cell">{formatDate(report.createdAt)}</Td>
+                        <Td className="text-right">
+                          <Button variant="outline" size="sm" onClick={() => openReport(report)}>
+                            Review
+                          </Button>
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+            </tbody>
+          </Table>
+        )}
       </Card>
-    </div>
+
+      <Modal
+        isOpen={!!selected}
+        onClose={() => setSelected(null)}
+        title="Review report"
+        description={selected ? `${typeMeta[selected.reportType]?.label ?? 'Report'} · ${formatDate(selected.createdAt)}` : undefined}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setSelected(null)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={saveReport} isLoading={saving}>
+              Save changes
+            </Button>
+          </>
+        }
+      >
+        {selected && (
+          <div className="space-y-5">
+            <div className="rounded-xl bg-surface-muted p-4 text-sm leading-relaxed text-foreground">{selected.message}</div>
+            <Select label="Status" value={draftStatus} onChange={(e) => setDraftStatus(e.target.value as Status)}>
+              {(Object.keys(statusMeta) as Status[]).map((s) => (
+                <option key={s} value={s}>
+                  {statusMeta[s].label}
+                </option>
+              ))}
+            </Select>
+            <Textarea
+              label="Response to user"
+              placeholder="Optional — explain what was done or what happens next."
+              value={draftResponse}
+              onChange={(e) => setDraftResponse(e.target.value)}
+              rows={4}
+            />
+          </div>
+        )}
+      </Modal>
+    </>
   );
 }

@@ -1,12 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-interface AccessibilityPreferences {
+export interface AccessibilityPreferences {
   largeText: boolean;
   highContrast: boolean;
   reducedMotion: boolean;
   keyboardNavigation: boolean;
-  screenReader: boolean;
 }
 
 interface AccessibilityState {
@@ -16,12 +15,11 @@ interface AccessibilityState {
   resetPreferences: () => void;
 }
 
-const defaultPreferences: AccessibilityPreferences = {
+export const defaultPreferences: AccessibilityPreferences = {
   largeText: false,
   highContrast: false,
   reducedMotion: false,
-  keyboardNavigation: true,
-  screenReader: false,
+  keyboardNavigation: false,
 };
 
 export const useAccessibilityStore = create<AccessibilityState>()(
@@ -43,6 +41,13 @@ export const useAccessibilityStore = create<AccessibilityState>()(
     }),
     {
       name: 'accessibility-storage',
+      merge: (persisted, current) => ({
+        ...current,
+        preferences: {
+          ...defaultPreferences,
+          ...((persisted as Partial<AccessibilityState>)?.preferences ?? {}),
+        },
+      }),
     }
   )
 );

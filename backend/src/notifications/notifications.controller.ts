@@ -38,13 +38,14 @@ export class NotificationsController {
     return this.notificationsService.markAllAsRead(req.user.id);
   }
 
-  @Delete(':id')
-  async remove(@Param('id') id: string, @Request() req) {
-    return this.notificationsService.remove(id, req.user.id);
-  }
-
+  // Must be declared before ':id' so 'clear-all' isn't captured as an id
   @Delete('clear-all')
   async clearAll(@Request() req) {
     return this.notificationsService.clearAll(req.user.id);
+  }
+
+  @Delete(':id')
+  async remove(@Param('id') id: string, @Request() req) {
+    return this.notificationsService.remove(id, req.user.id);
   }
 }

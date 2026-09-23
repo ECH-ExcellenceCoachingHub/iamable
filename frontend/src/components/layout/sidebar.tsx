@@ -3,161 +3,173 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Home,
-  Mic,
-  Type,
-  Hand,
-  History,
-  Bookmark,
-  Settings,
-  Bell,
-  Users,
-  BarChart3,
-  FileText,
-  Shield,
   Activity,
-  ChevronLeft,
-  ChevronRight,
-  X,
-  Menu,
+  Bell,
+  BrainCircuit,
+  ChevronsLeft,
+  ChevronsRight,
+  FileWarning,
+  GraduationCap,
+  Hand,
+  LayoutDashboard,
+  LayoutGrid,
+  Mic,
+  Server,
+  Settings,
+  Type,
+  Users,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth-store';
 import { useUIStore } from '@/store/ui-store';
+import { Logo, LogoMark } from '@/components/ui/logo';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
   href: string;
   label: string;
   icon: React.ReactNode;
-  adminOnly?: boolean;
+}
+
+const sections: { title: string; items: NavItem[]; adminOnly?: boolean }[] = [
+  {
+    title: 'Translate',
+    items: [
+      { href: '/dashboard', label: 'Overview', icon: <LayoutGrid /> },
+      { href: '/dashboard/translation', label: 'Sign to Text', icon: <Hand /> },
+      { href: '/dashboard/voice', label: 'Voice to Sign', icon: <Mic /> },
+      { href: '/dashboard/text-to-sign', label: 'Text to Sign', icon: <Type /> },
+    ],
+  },
+  {
+    title: 'Learn',
+    items: [{ href: '/dashboard/learn', label: 'Learn Sign Language', icon: <GraduationCap /> }],
+  },
+  {
+    title: 'Account',
+    items: [
+      { href: '/dashboard/notifications', label: 'Notifications', icon: <Bell /> },
+      { href: '/dashboard/settings', label: 'Settings', icon: <Settings /> },
+    ],
+  },
+  {
+    title: 'Admin',
+    adminOnly: true,
+    items: [
+      { href: '/admin', label: 'Dashboard', icon: <LayoutDashboard /> },
+      { href: '/admin/users', label: 'Users', icon: <Users /> },
+      { href: '/admin/reports', label: 'Reports', icon: <FileWarning /> },
+      { href: '/admin/ai-training', label: 'AI Training', icon: <BrainCircuit /> },
+      { href: '/admin/ai-performance', label: 'AI Performance', icon: <Activity /> },
+      { href: '/admin/system', label: 'System Monitor', icon: <Server /> },
+    ],
+  },
+];
+
+function NavLinks({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
+  const pathname = usePathname();
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin');
+
+  return (
+    <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4 scrollbar-thin" aria-label="App">
+      {sections
+        .filter((section) => !section.adminOnly || isAdmin)
+        .map((section) => (
+          <div key={section.title}>
+            {collapsed ? (
+              <div className="mx-auto mb-2 h-px w-6 bg-border" aria-hidden="true" />
+            ) : (
+              <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-wider text-subtle">{section.title}</p>
+            )}
+            <ul className="space-y-0.5">
+              {section.items.map((item) => {
+                const active = pathname === item.href;
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      onClick={onNavigate}
+                      aria-current={active ? 'page' : undefined}
+                      title={collapsed ? item.label : undefined}
+                      className={cn(
+                        'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors [&_svg]:size-[18px] [&_svg]:shrink-0',
+                        collapsed && 'justify-center px-0',
+                        active
+                          ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300'
+                          : 'text-muted hover:bg-surface-muted hover:text-foreground'
+                      )}
+                    >
+                      {active && (
+                        <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-brand-600 dark:bg-brand-400" aria-hidden="true" />
+                      )}
+                      {item.icon}
+                      <span className={cn(collapsed && 'sr-only')}>{item.label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+    </nav>
+  );
 }
 
 export const Sidebar = () => {
-  const pathname = usePathname();
-  const { user } = useAuthStore();
-  const { sidebarOpen, toggleSidebar } = useUIStore();
-  const isAdmin = user?.role === 'admin';
-  const [isMobile, setIsMobile] = React.useState(false);
-  const hasMounted = React.useRef(false);
-
-  React.useEffect(() => {
-    const checkMobile = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      
-      // Close sidebar on mount if on mobile
-      if (!hasMounted.current && mobile && sidebarOpen) {
-        hasMounted.current = true;
-        toggleSidebar();
-      }
-    };
-    
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const userNavItems: NavItem[] = [
-    { href: '/dashboard', label: 'Overview', icon: <Home className="w-5 h-5" /> },
-    { href: '/dashboard/translation', label: 'Sign to Text', icon: <Hand className="w-5 h-5" /> },
-    { href: '/dashboard/voice', label: 'Voice to Sign', icon: <Mic className="w-5 h-5" /> },
-    { href: '/dashboard/text-to-sign', label: 'Text to Sign', icon: <Type className="w-5 h-5" /> },
-    { href: '/dashboard/notifications', label: 'Notifications', icon: <Bell className="w-5 h-5" /> },
-    { href: '/dashboard/settings', label: 'Settings', icon: <Settings className="w-5 h-5" /> },
-  ];
-
-  const adminNavItems: NavItem[] = [
-    { href: '/admin', label: 'Dashboard', icon: <BarChart3 className="w-5 h-5" /> },
-    { href: '/admin/users', label: 'Users', icon: <Users className="w-5 h-5" /> },
-    { href: '/admin/reports', label: 'Reports', icon: <FileText className="w-5 h-5" /> },
-    { href: '/admin/ai-training', label: 'AI Training', icon: <Shield className="w-5 h-5" /> },
-    { href: '/admin/ai-performance', label: 'AI Performance', icon: <Activity className="w-5 h-5" /> },
-    { href: '/admin/system', label: 'System Monitor', icon: <BarChart3 className="w-5 h-5" /> },
-  ];
-
-  const navItems = pathname?.startsWith('/admin') && isAdmin ? adminNavItems : userNavItems;
+  const { sidebarCollapsed, toggleSidebarCollapsed, mobileNavOpen, setMobileNavOpen } = useUIStore();
 
   return (
     <>
-
-      {/* Mobile Overlay */}
-      <AnimatePresence>
-        {isMobile && sidebarOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={toggleSidebar}
-            className="md:hidden fixed inset-0 bg-black/50 z-40"
-          />
-        )}
-      </AnimatePresence>
-
-      <motion.aside
-        initial={{ x: -300 }}
-        animate={{ x: 0 }}
+      {/* Desktop */}
+      <aside
         className={cn(
-          'fixed left-0 top-16 bottom-0 z-40 border-r transition-all duration-300',
-          sidebarOpen ? 'w-64' : 'w-20',
-          isMobile && !sidebarOpen ? '-translate-x-full' : 'translate-x-0',
-          'bg-white/80 backdrop-blur-xl border-slate-200 dark:bg-slate-900/80 dark:border-slate-800'
+          'fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-border bg-surface transition-[width] duration-200 md:flex',
+          sidebarCollapsed ? 'w-[72px]' : 'w-64'
         )}
       >
-        <div className="flex flex-col h-full">
-          <div className="flex-1 py-4 overflow-y-auto">
-            <nav className="space-y-1 px-3">
-              {navItems.map((item) => {
-                if (item.adminOnly && !isAdmin) return null;
-                const isActive = pathname === item.href;
-                
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={isMobile ? toggleSidebar : undefined}
-                    className={cn(
-                      'flex items-center px-3 py-3 rounded-xl transition-all duration-200',
-                      'hover:bg-blue-50 dark:hover:bg-blue-900/20',
-                      isActive
-                        ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-                        : 'text-slate-700 dark:text-slate-300'
-                    )}
-                  >
-                    <span className="flex-shrink-0">{item.icon}</span>
-                    {sidebarOpen && (
-                      <motion.span
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="ml-3 font-medium text-sm"
-                      >
-                        {item.label}
-                      </motion.span>
-                    )}
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
-
-          {/* Collapse Toggle - Desktop Only */}
-          <div className="hidden md:block p-3 border-t border-slate-200 dark:border-slate-800">
-            <button
-              onClick={toggleSidebar}
-              className="w-full flex items-center justify-center px-3 py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-            >
-              {sidebarOpen ? (
-                <ChevronLeft className="w-5 h-5 text-slate-500" />
-              ) : (
-                <ChevronRight className="w-5 h-5 text-slate-500" />
-              )}
-            </button>
-          </div>
+        <div className={cn('flex h-16 shrink-0 items-center border-b border-border', sidebarCollapsed ? 'justify-center' : 'px-5')}>
+          <Link href="/dashboard" aria-label="Am Able dashboard" className="rounded-lg">
+            {sidebarCollapsed ? <LogoMark /> : <Logo />}
+          </Link>
         </div>
-      </motion.aside>
+        <NavLinks collapsed={sidebarCollapsed} />
+        <div className="border-t border-border p-3">
+          <button
+            onClick={toggleSidebarCollapsed}
+            className={cn(
+              'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-surface-muted hover:text-foreground',
+              sidebarCollapsed && 'justify-center px-0'
+            )}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {sidebarCollapsed ? <ChevronsRight className="size-[18px]" /> : <ChevronsLeft className="size-[18px]" />}
+            {!sidebarCollapsed && 'Collapse'}
+          </button>
+        </div>
+      </aside>
+
+      {/* Mobile drawer */}
+      <div
+        className={cn('fixed inset-0 z-50 md:hidden', mobileNavOpen ? 'pointer-events-auto' : 'pointer-events-none')}
+        aria-hidden={!mobileNavOpen}
+      >
+        <div
+          className={cn('absolute inset-0 bg-slate-950/50 backdrop-blur-sm transition-opacity', mobileNavOpen ? 'opacity-100' : 'opacity-0')}
+          onClick={() => setMobileNavOpen(false)}
+        />
+        <aside
+          className={cn(
+            'absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col border-r border-border bg-surface shadow-2xl transition-transform duration-200',
+            mobileNavOpen ? 'translate-x-0' : '-translate-x-full'
+          )}
+          {...(!mobileNavOpen && { inert: true })}
+        >
+          <div className="flex h-16 shrink-0 items-center border-b border-border px-5">
+            <Logo />
+          </div>
+          <NavLinks collapsed={false} onNavigate={() => setMobileNavOpen(false)} />
+        </aside>
+      </div>
     </>
   );
 };

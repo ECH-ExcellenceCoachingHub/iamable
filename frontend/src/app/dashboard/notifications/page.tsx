@@ -1,13 +1,18 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import { Bell, Check, Trash2, X, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { AnimatePresence, motion } from 'framer-motion';
+import { AlertTriangle, Bell, CheckCheck, CheckCircle2, Info, Trash2, X, XCircle } from 'lucide-react';
+import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { useAuthStore } from '@/store/auth-store';
+import { Card } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/modal';
+import { EmptyState, ErrorState, Skeleton } from '@/components/ui/feedback';
 import { api } from '@/lib/api';
+import { toast } from '@/store/toast-store';
+import { cn, formatRelativeTime, getErrorMessage } from '@/lib/utils';
+import { useApi } from '@/lib/hooks';
 
 interface Notification {
   _id: string;
@@ -19,229 +24,211 @@ interface Notification {
   link?: string;
 }
 
+const typeStyles: Record<Notification['type'], { icon: React.ReactNode; className: string }> = {
+  info: { icon: <Info />, className: 'bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-300' },
+  success: { icon: <CheckCircle2 />, className: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300' },
+  warning: { icon: <AlertTriangle />, className: 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300' },
+  error: { icon: <XCircle />, className: 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300' },
+};
+
+type Filter = 'all' | 'unread';
+
+async function fetchNotifications(): Promise<Notification[]> {
+  const data = await api.notifications.getAll();
+  return Array.isArray(data) ? data : [];
+}
+
 export default function NotificationsPage() {
-  const router = useRouter();
-  const { isAuthenticated, user } = useAuthStore();
-  const [isHydrated, setIsHydrated] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isHydrated) return;
-    if (!isAuthenticated) {
-      router.push('/login');
-    } else {
-      fetchNotifications();
-    }
-  }, [isAuthenticated, router, isHydrated]);
-
-  if (!isHydrated) {
-    return null;
-  }
-
-  const fetchNotifications = async () => {
-    try {
-      setLoading(true);
-      const data = await api.notifications.getAll();
-      setNotifications(data);
-    } catch (error) {
-      console.error('Failed to fetch notifications:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data, loading, error, reload: load, mutate } = useApi(fetchNotifications, 'Could not load notifications.');
+  const notifications = data ?? [];
+  const setNotifications = (update: (prev: Notification[]) => Notification[]) => mutate((prev) => update(prev ?? []));
+  const [filter, setFilter] = useState<Filter>('all');
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   const markAsRead = async (id: string) => {
+    setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, read: true } : n)));
     try {
       await api.notifications.markAsRead(id);
-      setNotifications(prev =>
-        prev.map(notif =>
-          notif._id === id ? { ...notif, read: true } : notif
-        )
-      );
-    } catch (error) {
-      console.error('Failed to mark as read:', error);
+    } catch (err) {
+      setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, read: false } : n)));
+      toast.error('Could not update notification', getErrorMessage(err));
     }
   };
 
   const markAllAsRead = async () => {
+    const previous = notifications;
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     try {
       await api.notifications.markAllAsRead();
-      setNotifications(prev =>
-        prev.map(notif => ({ ...notif, read: true }))
-      );
-    } catch (error) {
-      console.error('Failed to mark all as read:', error);
+      toast.success('All notifications marked as read');
+    } catch (err) {
+      setNotifications(() => previous);
+      toast.error('Could not update notifications', getErrorMessage(err));
     }
   };
 
-  const deleteNotification = async (id: string) => {
+  const remove = async (id: string) => {
+    const previous = notifications;
+    setNotifications((prev) => prev.filter((n) => n._id !== id));
     try {
       await api.notifications.delete(id);
-      setNotifications(prev => prev.filter(notif => notif._id !== id));
-    } catch (error) {
-      console.error('Failed to delete notification:', error);
+    } catch (err) {
+      setNotifications(() => previous);
+      toast.error('Could not dismiss notification', getErrorMessage(err));
     }
   };
 
   const clearAll = async () => {
+    setClearing(true);
     try {
       await api.notifications.clearAll();
-      setNotifications([]);
-    } catch (error) {
-      console.error('Failed to clear all:', error);
+      setNotifications(() => []);
+      setConfirmClear(false);
+      toast.success('Notifications cleared');
+    } catch (err) {
+      toast.error('Could not clear notifications', getErrorMessage(err));
+    } finally {
+      setClearing(false);
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
-
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    return `${diffDays}d ago`;
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'success':
-        return 'bg-green-500';
-      case 'warning':
-        return 'bg-yellow-500';
-      case 'error':
-        return 'bg-red-500';
-      default:
-        return 'bg-blue-500';
-    }
-  };
+  const unreadCount = notifications.filter((n) => !n.read).length;
+  const visible = filter === 'unread' ? notifications.filter((n) => !n.read) : notifications;
 
   return (
-    <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-          Notifications
-        </h1>
-        <p className="text-slate-600 dark:text-slate-300">
-          {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}` : 'All caught up!'}
-        </p>
-      </motion.div>
+    <>
+      <PageHeader
+        title="Notifications"
+        description={loading ? 'Loading…' : unreadCount > 0 ? `You have ${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}.` : "You're all caught up."}
+        actions={
+          notifications.length > 0 && (
+            <>
+              <Button variant="outline" size="sm" onClick={markAllAsRead} disabled={unreadCount === 0}>
+                <CheckCheck />
+                Mark all read
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)}>
+                <Trash2 />
+                Clear all
+              </Button>
+            </>
+          )
+        }
+      />
 
-      <div className="flex gap-2">
-        {unreadCount > 0 && (
-          <Button onClick={markAllAsRead} variant="outline" size="sm">
-            <Check className="w-4 h-4 mr-2" />
-            Mark All Read
-          </Button>
-        )}
-        {notifications.length > 0 && (
-          <Button onClick={clearAll} variant="outline" size="sm">
-            <Trash2 className="w-4 h-4 mr-2" />
-            Clear All
-          </Button>
-        )}
+      <div className="mb-4 inline-flex rounded-xl bg-surface-muted p-1 ring-1 ring-inset ring-border" role="tablist" aria-label="Filter notifications">
+        {(['all', 'unread'] as Filter[]).map((f) => (
+          <button
+            key={f}
+            role="tab"
+            aria-selected={filter === f}
+            onClick={() => setFilter(f)}
+            className={cn(
+              'flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium capitalize transition-all',
+              filter === f ? 'bg-surface text-foreground shadow-sm ring-1 ring-border' : 'text-muted hover:text-foreground'
+            )}
+          >
+            {f}
+            {f === 'unread' && unreadCount > 0 && (
+              <span className="rounded-full bg-brand-600 px-1.5 text-[11px] font-semibold text-white">{unreadCount}</span>
+            )}
+          </button>
+        ))}
       </div>
 
-      {notifications.length === 0 ? (
-        <Card>
-          <CardContent className="py-12">
-            <div className="flex flex-col items-center justify-center text-slate-400">
-              <Bell className="w-16 h-16 mb-4 opacity-50" />
-              <p className="text-lg">No notifications</p>
-            </div>
-          </CardContent>
-        </Card>
+      {error ? (
+        <ErrorState message={error} onRetry={load} />
       ) : (
-        <div className="space-y-3">
-          {notifications.map((notification) => (
-            <motion.div
-              key={notification._id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.05 }}
-            >
-              <Card
-                className={`transition-all hover:shadow-md ${
-                  !notification.read ? 'border-l-4 border-l-blue-500' : ''
-                }`}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-4">
-                    <div
-                      className={`w-2 h-2 rounded-full mt-2 ${getTypeColor(
-                        notification.type
-                      )}`}
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3
-                            className={`font-semibold ${
-                              !notification.read
-                                ? 'text-slate-900 dark:text-white'
-                                : 'text-slate-600 dark:text-slate-400'
-                            }`}
-                          >
-                            {notification.title}
-                          </h3>
-                          <p
-                            className={`text-sm mt-1 ${
-                              !notification.read
-                                ? 'text-slate-700 dark:text-slate-300'
-                                : 'text-slate-500 dark:text-slate-500'
-                            }`}
-                          >
-                            {notification.message}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-slate-400 flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {formatTime(notification.createdAt)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 mt-3">
-                        {!notification.read && (
-                          <Button
-                            onClick={() => markAsRead(notification._id)}
-                            variant="ghost"
-                            size="sm"
-                          >
-                            <Check className="w-4 h-4 mr-1" />
-                            Mark Read
-                          </Button>
-                        )}
-                        <Button
-                          onClick={() => deleteNotification(notification._id)}
-                          variant="ghost"
-                          size="sm"
-                        >
-                          <X className="w-4 h-4 mr-1" />
-                          Dismiss
-                        </Button>
-                      </div>
-                    </div>
+        <Card className="overflow-hidden">
+          {loading ? (
+            <div className="divide-y divide-border">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="flex gap-4 p-5">
+                  <Skeleton className="size-10 rounded-xl" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-1/3" />
+                    <Skeleton className="h-3 w-2/3" />
                   </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
-        </div>
+                </div>
+              ))}
+            </div>
+          ) : visible.length === 0 ? (
+            <EmptyState
+              icon={<Bell />}
+              title={filter === 'unread' ? 'No unread notifications' : 'No notifications yet'}
+              description="We'll let you know when something needs your attention."
+            />
+          ) : (
+            <ul className="divide-y divide-border">
+              <AnimatePresence initial={false}>
+                {visible.map((n) => {
+                  const style = typeStyles[n.type] ?? typeStyles.info;
+                  return (
+                    <motion.li
+                      key={n._id}
+                      layout
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className={cn('group relative flex gap-4 p-5 transition-colors', !n.read && 'bg-brand-50/40 dark:bg-brand-500/[0.04]')}
+                    >
+                      {!n.read && <span className="absolute left-0 top-0 h-full w-0.5 bg-brand-600 dark:bg-brand-400" aria-hidden="true" />}
+                      <span className={cn('flex size-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5', style.className)}>
+                        {style.icon}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                          <p className={cn('text-sm', n.read ? 'font-medium text-muted' : 'font-semibold text-foreground')}>
+                            {n.title}
+                            {!n.read && <span className="sr-only"> (unread)</span>}
+                          </p>
+                          <time dateTime={n.createdAt} className="text-xs text-subtle">
+                            {formatRelativeTime(n.createdAt)}
+                          </time>
+                        </div>
+                        <p className="mt-1 text-sm text-muted">{n.message}</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {n.link && (
+                            <Link href={n.link} className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">
+                              View details
+                            </Link>
+                          )}
+                          {!n.read && (
+                            <button onClick={() => markAsRead(n._id)} className="text-sm font-medium text-muted hover:text-foreground">
+                              Mark as read
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => remove(n._id)}
+                        aria-label={`Dismiss "${n.title}"`}
+                        className="shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                      >
+                        <X />
+                      </Button>
+                    </motion.li>
+                  );
+                })}
+              </AnimatePresence>
+            </ul>
+          )}
+        </Card>
       )}
-    </div>
+
+      <ConfirmDialog
+        isOpen={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        onConfirm={clearAll}
+        isLoading={clearing}
+        destructive
+        title="Clear all notifications?"
+        description="This permanently removes all of your notifications. This can't be undone."
+        confirmLabel="Clear all"
+      />
+    </>
   );
 }

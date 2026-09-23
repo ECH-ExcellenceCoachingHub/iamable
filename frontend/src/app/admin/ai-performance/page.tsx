@@ -1,10 +1,16 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { BarChart3, TrendingUp, Clock, Target, Activity, Zap } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import React from 'react';
+import { Activity, BarChart3, Clock, Target, TrendingUp, Zap } from 'lucide-react';
+import { PageHeader } from '@/components/layout/app-shell';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { StatCard } from '@/components/ui/stat-card';
+import { EmptyState, ErrorState, Skeleton } from '@/components/ui/feedback';
+import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
+import { formatNumber, formatRelativeTime } from '@/lib/utils';
+import { useApi } from '@/lib/hooks';
 
 interface AIStats {
   totalPredictions: number;
@@ -17,202 +23,147 @@ interface AILog {
   _id: string;
   gestureRecognized: string;
   confidence: number;
-  accuracy: number;
   processingTime: number;
   createdAt: string;
 }
 
+async function fetchPerformance() {
+  const [stats, logs] = await Promise.all([api.ai.getStats(), api.ai.getLogs(50)]);
+  return { stats: stats as AIStats, logs: (Array.isArray(logs) ? logs : []) as AILog[] };
+}
+
 export default function AIPerformancePage() {
-  const [stats, setStats] = useState<AIStats | null>(null);
-  const [logs, setLogs] = useState<AILog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, error, reload: load } = useApi(fetchPerformance, 'Could not load AI performance data.');
+  const stats = data?.stats;
+  const logs = data?.logs ?? [];
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const [statsData, logsData] = await Promise.all([
-        api.ai.getStats(),
-        api.ai.getLogs(50),
-      ]);
-      setStats(statsData);
-      setLogs(logsData);
-    } catch (error) {
-      console.error('Failed to fetch AI performance data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return <div className="text-center py-8 text-slate-500">Loading performance data...</div>;
-  }
-
-  const statCards = [
-    {
-      title: 'Total Predictions',
-      value: stats?.totalPredictions || 0,
-      icon: <Activity className="w-6 h-6 text-blue-600" />,
-      color: 'from-blue-100 to-blue-200 dark:from-blue-900/30 dark:to-blue-800/30',
-    },
-    {
-      title: 'Average Accuracy',
-      value: `${((stats?.avgAccuracy || 0) * 100).toFixed(2)}%`,
-      icon: <Target className="w-6 h-6 text-green-600" />,
-      color: 'from-green-100 to-green-200 dark:from-green-900/30 dark:to-green-800/30',
-    },
-    {
-      title: 'Avg Processing Time',
-      value: `${(stats?.avgProcessingTime || 0).toFixed(2)}ms`,
-      icon: <Zap className="w-6 h-6 text-purple-600" />,
-      color: 'from-purple-100 to-purple-200 dark:from-purple-900/30 dark:to-purple-800/30',
-    },
-    {
-      title: 'Top Gesture',
-      value: stats?.gestureDistribution[0]?._id || 'N/A',
-      icon: <TrendingUp className="w-6 h-6 text-orange-600" />,
-      color: 'from-orange-100 to-orange-200 dark:from-orange-900/30 dark:to-orange-800/30',
-    },
-  ];
+  const distribution = stats?.gestureDistribution ?? [];
+  const maxCount = Math.max(1, ...distribution.map((g) => g.count));
 
   return (
-    <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-          AI Performance
-        </h1>
-        <p className="text-slate-600 dark:text-slate-300">
-          Monitor AI model performance and prediction accuracy
-        </p>
-      </motion.div>
+    <>
+      <PageHeader
+        title="AI Performance"
+        description="Monitor model accuracy, speed and gesture usage."
+        actions={
+          <Button variant="outline" onClick={load} isLoading={loading}>
+            Refresh
+          </Button>
+        }
+      />
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((stat, index) => (
-          <motion.div
-            key={index}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            <Card>
+      {error ? (
+        <ErrorState message={error} onRetry={load} />
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Total predictions" value={formatNumber(stats?.totalPredictions ?? 0)} icon={<Activity />} loading={loading} />
+            <StatCard
+              label="Avg. accuracy"
+              value={`${((stats?.avgAccuracy ?? 0) * 100).toFixed(1)}%`}
+              icon={<Target />}
+              tone="emerald"
+              loading={loading}
+            />
+            <StatCard
+              label="Avg. processing"
+              value={`${(stats?.avgProcessingTime ?? 0).toFixed(0)} ms`}
+              icon={<Zap />}
+              tone="violet"
+              loading={loading}
+            />
+            <StatCard
+              label="Top gesture"
+              value={<span className="capitalize">{distribution[0]?._id ?? '—'}</span>}
+              icon={<TrendingUp />}
+              tone="amber"
+              loading={loading}
+            />
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-5">
+            <Card className="lg:col-span-2">
               <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                    {stat.title}
-                  </CardTitle>
-                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${stat.color} flex items-center justify-center`}>
-                    {stat.icon}
-                  </div>
-                </div>
+                <CardTitle>
+                  <BarChart3 className="size-4 text-subtle" />
+                  Gesture distribution
+                </CardTitle>
+                <CardDescription>Most frequently recognised gestures.</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-slate-900 dark:text-white">
-                  {stat.value}
-                </div>
+                {loading ? (
+                  <div className="space-y-4">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <Skeleton key={i} className="h-6 w-full" />
+                    ))}
+                  </div>
+                ) : distribution.length === 0 ? (
+                  <EmptyState icon={<BarChart3 />} title="No predictions yet" className="py-8" />
+                ) : (
+                  <ul className="space-y-3.5">
+                    {distribution.slice(0, 10).map((item) => (
+                      <li key={item._id}>
+                        <div className="mb-1.5 flex items-center justify-between text-sm">
+                          <span className="font-medium capitalize text-foreground">{item._id || 'Unknown'}</span>
+                          <span className="tabular-nums text-muted">{item.count.toLocaleString()}</span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-surface-muted">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-brand-500 to-accent-500 transition-[width] duration-700"
+                            style={{ width: `${(item.count / maxCount) * 100}%` }}
+                          />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </CardContent>
             </Card>
-          </motion.div>
-        ))}
-      </div>
 
-      {/* Gesture Distribution */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="w-5 h-5" />
-              Gesture Recognition Distribution
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {stats?.gestureDistribution.slice(0, 10).map((item, index) => {
-                const maxCount = Math.max(...stats.gestureDistribution.map(g => g.count));
-                const percentage = (item.count / maxCount) * 100;
-                return (
-                  <div key={index} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium text-slate-900 dark:text-white capitalize">
-                        {item._id}
-                      </span>
-                      <span className="text-slate-600 dark:text-slate-400">{item.count} predictions</span>
-                    </div>
-                    <div className="h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${percentage}%` }}
-                        transition={{ duration: 0.5, delay: index * 0.1 }}
-                        className="h-full bg-blue-600 rounded-full"
-                      />
-                    </div>
+            <Card className="overflow-hidden lg:col-span-3">
+              <CardHeader>
+                <CardTitle>
+                  <Clock className="size-4 text-subtle" />
+                  Recent predictions
+                </CardTitle>
+                <CardDescription>The latest 15 recognitions across all users.</CardDescription>
+              </CardHeader>
+              <div className="mt-4">
+                {loading ? (
+                  <div className="space-y-3 px-6 pb-6">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <Skeleton key={i} className="h-8 w-full" />
+                    ))}
                   </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Recent Predictions */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="w-5 h-5" />
-              Recent Predictions
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {logs.slice(0, 10).map((log, index) => (
-                <motion.div
-                  key={log._id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                      <Activity className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <div className="font-medium text-slate-900 dark:text-white capitalize">
-                        {log.gestureRecognized}
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        {new Date(log.createdAt).toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm font-medium text-slate-900 dark:text-white">
-                      {(log.confidence * 100).toFixed(1)}% confidence
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {log.processingTime}ms
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-    </div>
+                ) : logs.length === 0 ? (
+                  <EmptyState icon={<Clock />} title="No recent predictions" className="py-8" />
+                ) : (
+                  <Table>
+                    <thead>
+                      <tr>
+                        <Th>Gesture</Th>
+                        <Th className="text-right">Confidence</Th>
+                        <Th className="hidden text-right sm:table-cell">Time</Th>
+                        <Th className="text-right">When</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logs.slice(0, 15).map((log) => (
+                        <Tr key={log._id}>
+                          <Td className="font-medium capitalize text-foreground">{log.gestureRecognized}</Td>
+                          <Td className="text-right tabular-nums">{((log.confidence ?? 0) * 100).toFixed(1)}%</Td>
+                          <Td className="hidden text-right tabular-nums sm:table-cell">{log.processingTime ?? 0} ms</Td>
+                          <Td className="whitespace-nowrap text-right text-subtle">{formatRelativeTime(log.createdAt)}</Td>
+                        </Tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                )}
+              </div>
+            </Card>
+          </div>
+        </>
+      )}
+    </>
   );
 }

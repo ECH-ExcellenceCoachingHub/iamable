@@ -1,117 +1,228 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Users, Search, Filter, MoreVertical } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import React, { useCallback, useState } from 'react';
+import { ChevronLeft, ChevronRight, Search, Trash2, Users } from 'lucide-react';
+import { PageHeader } from '@/components/layout/app-shell';
+import { Avatar } from '@/components/layout/app-header';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { ConfirmDialog } from '@/components/ui/modal';
+import { EmptyState, ErrorState, Skeleton } from '@/components/ui/feedback';
+import { Table, Td, Th, Tr } from '@/components/ui/table';
+import { useAuthStore } from '@/store/auth-store';
+import { toast } from '@/store/toast-store';
+import { useApi, useDebouncedValue } from '@/lib/hooks';
+import { api } from '@/lib/api';
+import { cn, formatDate, getErrorMessage } from '@/lib/utils';
 
-interface User {
+interface AdminUser {
   _id: string;
   name: string;
   email: string;
-  role: string;
+  role: 'user' | 'admin';
   createdAt: string;
 }
 
+const PAGE_SIZE = 10;
+
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 350);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [toDelete, setToDelete] = useState<AdminUser | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // Go back to the first page whenever the search changes
+  const [prevSearch, setPrevSearch] = useState(debouncedSearch);
+  if (prevSearch !== debouncedSearch) {
+    setPrevSearch(debouncedSearch);
+    setPage(1);
+  }
 
-  useEffect(() => {
-    // Mock data - in production, fetch from API
-    setUsers([
-      { _id: '1', name: 'John Doe', email: 'john@example.com', role: 'user', createdAt: '2024-01-15' },
-      { _id: '2', name: 'Jane Smith', email: 'jane@example.com', role: 'user', createdAt: '2024-01-20' },
-      { _id: '3', name: 'Admin User', email: 'admin@amable.com', role: 'admin', createdAt: '2024-01-01' },
-    ]);
-  }, []);
+  const fetchUsers = useCallback(async () => {
+    const res = await api.admin.getAllUsers(page, PAGE_SIZE, debouncedSearch.trim() || undefined);
+    return { users: (res?.users ?? []) as AdminUser[], total: (res?.total ?? 0) as number };
+  }, [page, debouncedSearch]);
+  const { data, loading, error, reload: load, mutate } = useApi(fetchUsers, 'Could not load users.');
+  const users = data?.users ?? [];
+  const total = data?.total ?? 0;
 
-  const filteredUsers = users.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const changeRole = async (user: AdminUser, role: AdminUser['role']) => {
+    setUpdatingId(user._id);
+    try {
+      await api.admin.updateUserRole(user._id, role);
+      mutate((prev) => prev && { ...prev, users: prev.users.map((u) => (u._id === user._id ? { ...u, role } : u)) });
+      toast.success('Role updated', `${user.name} is now ${role === 'admin' ? 'an admin' : 'a user'}.`);
+    } catch (err) {
+      toast.error('Could not update role', getErrorMessage(err));
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!toDelete) return;
+    setDeleting(true);
+    try {
+      await api.admin.deleteUser(toDelete._id);
+      toast.success('User deleted', `${toDelete.name} has been removed.`);
+      setToDelete(null);
+      if (users.length === 1 && page > 1) setPage(page - 1);
+      else load();
+    } catch (err) {
+      toast.error('Could not delete user', getErrorMessage(err));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-          User Management
-        </h1>
-        <p className="text-slate-600 dark:text-slate-300">
-          Manage platform users and their roles
-        </p>
-      </motion.div>
+    <>
+      <PageHeader title="Users" description={loading ? 'Loading…' : `${total} registered ${total === 1 ? 'user' : 'users'}`} />
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              All Users
-            </CardTitle>
+      <Card className="overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
+          <Input
+            aria-label="Search users"
+            placeholder="Search by name or email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            icon={<Search />}
+            wrapperClassName="sm:max-w-xs"
+          />
+        </div>
+
+        {error ? (
+          <div className="p-4">
+            <ErrorState message={error} onRetry={load} />
+          </div>
+        ) : !loading && users.length === 0 ? (
+          <EmptyState
+            icon={<Users />}
+            title={debouncedSearch ? 'No matching users' : 'No users yet'}
+            description={debouncedSearch ? `Nothing matches “${debouncedSearch}”.` : undefined}
+          />
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>User</Th>
+                <Th>Role</Th>
+                <Th className="hidden md:table-cell">Joined</Th>
+                <Th className="text-right">
+                  <span className="sr-only">Actions</span>
+                </Th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading
+                ? Array.from({ length: 5 }).map((_, i) => (
+                    <Tr key={i}>
+                      <Td>
+                        <div className="flex items-center gap-3">
+                          <Skeleton className="size-8 rounded-full" />
+                          <div className="space-y-1.5">
+                            <Skeleton className="h-3.5 w-28" />
+                            <Skeleton className="h-3 w-40" />
+                          </div>
+                        </div>
+                      </Td>
+                      <Td>
+                        <Skeleton className="h-8 w-24" />
+                      </Td>
+                      <Td className="hidden md:table-cell">
+                        <Skeleton className="h-3.5 w-20" />
+                      </Td>
+                      <Td />
+                    </Tr>
+                  ))
+                : users.map((user) => {
+                    const isSelf = user._id === currentUserId;
+                    return (
+                      <Tr key={user._id}>
+                        <Td>
+                          <div className="flex items-center gap-3">
+                            <Avatar name={user.name} />
+                            <div className="min-w-0">
+                              <p className="flex items-center gap-2 truncate font-medium text-foreground">
+                                {user.name}
+                                {isSelf && <Badge tone="brand">You</Badge>}
+                              </p>
+                              <p className="truncate text-xs text-subtle">{user.email}</p>
+                            </div>
+                          </div>
+                        </Td>
+                        <Td>
+                          <select
+                            aria-label={`Role for ${user.name}`}
+                            value={user.role}
+                            disabled={isSelf || updatingId === user._id}
+                            onChange={(e) => changeRole(user, e.target.value as AdminUser['role'])}
+                            className={cn(
+                              'h-8 rounded-lg border border-border bg-surface pl-2.5 pr-7 text-xs font-medium capitalize text-foreground outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-60',
+                              user.role === 'admin' && 'text-violet-700 dark:text-violet-300'
+                            )}
+                            title={isSelf ? "You can't change your own role" : undefined}
+                          >
+                            <option value="user">User</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </Td>
+                        <Td className="hidden whitespace-nowrap md:table-cell">{formatDate(user.createdAt)}</Td>
+                        <Td className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => setToDelete(user)}
+                            disabled={isSelf}
+                            aria-label={`Delete ${user.name}`}
+                            title={isSelf ? "You can't delete your own account" : 'Delete user'}
+                            className="hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+                          >
+                            <Trash2 />
+                          </Button>
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+            </tbody>
+          </Table>
+        )}
+
+        {!error && total > PAGE_SIZE && (
+          <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm sm:px-6">
+            <p className="text-muted">
+              Page <span className="font-medium text-foreground">{page}</span> of <span className="font-medium text-foreground">{totalPages}</span>
+            </p>
             <div className="flex gap-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  placeholder="Search users..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 w-64"
-                />
-              </div>
-              <Button variant="outline">
-                <Filter className="w-4 h-4 mr-2" />
-                Filter
+              <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page <= 1 || loading}>
+                <ChevronLeft />
+                Previous
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages || loading}>
+                Next
+                <ChevronRight />
               </Button>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-700">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-300">Name</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-300">Email</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-300">Role</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-300">Joined</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-slate-600 dark:text-slate-300">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredUsers.map((user) => (
-                  <tr key={user._id} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="py-3 px-4">
-                      <div className="font-medium text-slate-900 dark:text-white">{user.name}</div>
-                    </td>
-                    <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{user.email}</td>
-                    <td className="py-3 px-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        user.role === 'admin'
-                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-                          : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                      }`}>
-                        {user.role}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-slate-600 dark:text-slate-300">{user.createdAt}</td>
-                    <td className="py-3 px-4">
-                      <Button variant="ghost" size="sm">
-                        <MoreVertical className="w-4 h-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
+        )}
       </Card>
-    </div>
+
+      <ConfirmDialog
+        isOpen={!!toDelete}
+        onClose={() => setToDelete(null)}
+        onConfirm={confirmDelete}
+        isLoading={deleting}
+        destructive
+        title="Delete user?"
+        description={`This permanently deletes ${toDelete?.name ?? 'this user'} (${toDelete?.email ?? ''}) and can't be undone.`}
+        confirmLabel="Delete user"
+      />
+    </>
   );
 }

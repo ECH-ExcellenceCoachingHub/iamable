@@ -1,17 +1,18 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { BarChart3, Users, Activity, TrendingUp, FileText, Cpu, Server, HardDrive } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import React from 'react';
+import Link from 'next/link';
+import { Activity, ArrowUpRight, Clock, Cpu, FileWarning, HardDrive, MemoryStick, ShieldCheck, TrendingUp, Users } from 'lucide-react';
+import { PageHeader } from '@/components/layout/app-shell';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { StatCard } from '@/components/ui/stat-card';
+import { ErrorState, Progress, Skeleton } from '@/components/ui/feedback';
 import { api } from '@/lib/api';
+import { formatNumber } from '@/lib/utils';
+import { useApi } from '@/lib/hooks';
 
 interface DashboardStats {
-  users: {
-    total: number;
-    active: number;
-    admins: number;
-  };
+  users: { total: number; active: number; admins: number };
   system: {
     cpuUsage: number;
     memoryUsage: number;
@@ -28,205 +29,168 @@ interface ReportStats {
   totalReports: number;
   pendingReports: number;
   resolvedReports: number;
-  reportTypeDistribution: { _id: string; count: number }[];
+}
+
+function usageColor(value: number, warn = 70, critical = 90) {
+  if (value >= critical) return 'bg-red-500';
+  if (value >= warn) return 'bg-amber-500';
+  return 'bg-emerald-500';
+}
+
+async function fetchAdminStats() {
+  const [dashboard, reports] = await Promise.all([api.admin.getDashboardStats(), api.admin.getStats()]);
+  return { dashboard: dashboard as DashboardStats, reports: reports as ReportStats };
 }
 
 export default function AdminDashboardPage() {
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [reportStats, setReportStats] = useState<ReportStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, error, reload: load } = useApi(fetchAdminStats, 'Could not load admin statistics.');
+  const dashboard = data?.dashboard;
+  const reports = data?.reports;
 
-  useEffect(() => {
-    fetchStats();
-  }, []);
-
-  const fetchStats = async () => {
-    try {
-      const [dashboardData, reportData] = await Promise.all([
-        api.admin.getDashboardStats(),
-        api.admin.getStats(),
-      ]);
-      setDashboardStats(dashboardData);
-      setReportStats(reportData);
-    } catch (error) {
-      console.error('Failed to fetch admin stats');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return <div className="text-center py-8 text-slate-500">Loading dashboard...</div>;
-  }
-
-  const statCards = [
-    {
-      title: 'Total Users',
-      value: dashboardStats?.users.total || 0,
-      icon: <Users className="w-6 h-6 text-blue-600" />,
-      color: 'from-blue-100 to-blue-200 dark:from-blue-900/30 dark:to-blue-800/30',
-    },
-    {
-      title: 'Active Users',
-      value: dashboardStats?.users.active || 0,
-      icon: <TrendingUp className="w-6 h-6 text-purple-600" />,
-      color: 'from-purple-100 to-purple-200 dark:from-purple-900/30 dark:to-purple-800/30',
-    },
-    {
-      title: 'Pending Reports',
-      value: reportStats?.pendingReports || 0,
-      icon: <FileText className="w-6 h-6 text-orange-600" />,
-      color: 'from-orange-100 to-orange-200 dark:from-orange-900/30 dark:to-orange-800/30',
-    },
-    {
-      title: 'Total Requests',
-      value: dashboardStats?.system.totalRequests || 0,
-      icon: <Activity className="w-6 h-6 text-teal-600" />,
-      color: 'from-teal-100 to-teal-200 dark:from-teal-900/30 dark:to-teal-800/30',
-    },
+  const system = dashboard?.system;
+  const resources = [
+    { label: 'CPU', value: system?.cpuUsage ?? 0, icon: <Cpu className="size-4" /> },
+    { label: 'Memory', value: system?.memoryUsage ?? 0, icon: <MemoryStick className="size-4" /> },
+    { label: 'Disk', value: system?.diskUsage ?? 0, icon: <HardDrive className="size-4" />, warn: 80, critical: 95 },
   ];
 
-  const systemCards = [
-    {
-      title: 'CPU Usage',
-      value: `${(dashboardStats?.system.cpuUsage || 0).toFixed(1)}%`,
-      icon: <Cpu className="w-6 h-6 text-indigo-600" />,
-      color: 'from-indigo-100 to-indigo-200 dark:from-indigo-900/30 dark:to-indigo-800/30',
-    },
-    {
-      title: 'Memory Usage',
-      value: `${(dashboardStats?.system.memoryUsage || 0).toFixed(1)}%`,
-      icon: <Server className="w-6 h-6 text-pink-600" />,
-      color: 'from-pink-100 to-pink-200 dark:from-pink-900/30 dark:to-pink-800/30',
-    },
-    {
-      title: 'Disk Usage',
-      value: `${(dashboardStats?.system.diskUsage || 0).toFixed(1)}%`,
-      icon: <HardDrive className="w-6 h-6 text-green-600" />,
-      color: 'from-green-100 to-green-200 dark:from-green-900/30 dark:to-green-800/30',
-    },
-    {
-      title: 'Avg Response Time',
-      value: `${(dashboardStats?.system.averageResponseTime || 0).toFixed(2)}ms`,
-      icon: <Activity className="w-6 h-6 text-yellow-600" />,
-      color: 'from-yellow-100 to-yellow-200 dark:from-yellow-900/30 dark:to-yellow-800/30',
-    },
-  ];
+  const resolvedPct = reports && reports.totalReports > 0 ? (reports.resolvedReports / reports.totalReports) * 100 : 0;
 
   return (
-    <div className="space-y-8">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-          Admin Dashboard
-        </h1>
-        <p className="text-slate-600 dark:text-slate-300">
-          Overview of platform statistics and system health
-        </p>
-      </motion.div>
+    <>
+      <PageHeader title="Admin dashboard" description="Platform statistics and system health at a glance." />
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((stat, index) => (
-          <motion.div
-            key={index}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                    {stat.title}
-                  </CardTitle>
-                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${stat.color} flex items-center justify-center`}>
-                    {stat.icon}
-                  </div>
-                </div>
+      {error ? (
+        <ErrorState message={error} onRetry={load} />
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Total users" value={formatNumber(dashboard?.users.total ?? 0)} icon={<Users />} loading={loading} />
+            <StatCard
+              label="Verified users"
+              value={formatNumber(dashboard?.users.active ?? 0)}
+              icon={<TrendingUp />}
+              tone="emerald"
+              loading={loading}
+            />
+            <StatCard
+              label="Pending reports"
+              value={reports?.pendingReports ?? 0}
+              icon={<FileWarning />}
+              tone="amber"
+              loading={loading}
+            />
+            <StatCard
+              label="Total requests"
+              value={formatNumber(system?.totalRequests ?? 0)}
+              icon={<Activity />}
+              tone="violet"
+              loading={loading}
+            />
+          </div>
+
+          <div className="mt-6 grid gap-6 lg:grid-cols-3">
+            <Card className="lg:col-span-2">
+              <CardHeader className="flex-row items-center justify-between">
+                <CardTitle>System health</CardTitle>
+                <Link
+                  href="/admin/system"
+                  className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:underline dark:text-brand-400"
+                >
+                  Details <ArrowUpRight className="size-4" />
+                </Link>
               </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-slate-900 dark:text-white">
-                  {stat.value}
+              <CardContent className="space-y-5">
+                {resources.map((r) => (
+                  <div key={r.label}>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-2 font-medium text-foreground">
+                        <span className="text-subtle">{r.icon}</span>
+                        {r.label}
+                      </span>
+                      {loading ? <Skeleton className="h-4 w-10" /> : <span className="tabular-nums text-muted">{r.value.toFixed(1)}%</span>}
+                    </div>
+                    <Progress value={loading ? 0 : r.value} label={`${r.label} usage`} barClassName={usageColor(r.value, r.warn, r.critical)} />
+                  </div>
+                ))}
+                <div className="grid grid-cols-2 gap-4 border-t border-border pt-5">
+                  <div>
+                    <p className="flex items-center gap-1.5 text-xs text-subtle">
+                      <Clock className="size-3.5" /> Avg. response
+                    </p>
+                    <p className="mt-1 font-display text-xl font-bold text-foreground">
+                      {loading ? '—' : `${(system?.averageResponseTime ?? 0).toFixed(0)} ms`}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="flex items-center gap-1.5 text-xs text-subtle">
+                      <ShieldCheck className="size-3.5" /> Error rate
+                    </p>
+                    <p className="mt-1 font-display text-xl font-bold text-foreground">
+                      {loading ? '—' : `${((system?.errorRate ?? 0) * 100).toFixed(2)}%`}
+                    </p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-          </motion.div>
-        ))}
-      </div>
 
-      {/* System Health */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="w-5 h-5" />
-              System Health
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {systemCards.map((card, index) => (
-                <div key={index} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    {card.icon}
-                    <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                      {card.title}
-                    </span>
+            <Card>
+              <CardHeader className="flex-row items-center justify-between">
+                <CardTitle>Reports</CardTitle>
+                <Link
+                  href="/admin/reports"
+                  className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:underline dark:text-brand-400"
+                >
+                  Review <ArrowUpRight className="size-4" />
+                </Link>
+              </CardHeader>
+              <CardContent>
+                <dl className="space-y-3">
+                  {[
+                    { label: 'Total', value: reports?.totalReports ?? 0, dot: 'bg-slate-400' },
+                    { label: 'Pending', value: reports?.pendingReports ?? 0, dot: 'bg-amber-500' },
+                    { label: 'Resolved', value: reports?.resolvedReports ?? 0, dot: 'bg-emerald-500' },
+                  ].map((row) => (
+                    <div key={row.label} className="flex items-center justify-between rounded-xl bg-surface-muted px-4 py-3">
+                      <dt className="flex items-center gap-2 text-sm text-muted">
+                        <span className={`size-2 rounded-full ${row.dot}`} />
+                        {row.label}
+                      </dt>
+                      <dd className="font-display text-lg font-bold tabular-nums text-foreground">
+                        {loading ? <Skeleton className="h-5 w-8" /> : row.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="mt-5">
+                  <div className="mb-2 flex justify-between text-xs text-muted">
+                    <span>Resolution rate</span>
+                    <span className="tabular-nums">{resolvedPct.toFixed(0)}%</span>
                   </div>
-                  <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                    {card.value}
-                  </div>
+                  <Progress value={resolvedPct} label="Resolution rate" barClassName="bg-emerald-500" />
                 </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
+              </CardContent>
+            </Card>
+          </div>
 
-      {/* Report Statistics */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="w-5 h-5" />
-              Report Statistics
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                <div className="text-sm text-slate-600 dark:text-slate-400 mb-1">Total Reports</div>
-                <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {reportStats?.totalReports || 0}
-                </div>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                <div className="text-sm text-slate-600 dark:text-slate-400 mb-1">Pending</div>
-                <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {reportStats?.pendingReports || 0}
-                </div>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                <div className="text-sm text-slate-600 dark:text-slate-400 mb-1">Resolved</div>
-                <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {reportStats?.resolvedReports || 0}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-    </div>
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <StatCard label="Administrators" value={dashboard?.users.admins ?? 0} icon={<ShieldCheck />} tone="violet" loading={loading} />
+            <StatCard label="Active sessions" value={system?.activeUsers ?? 0} icon={<Users />} tone="sky" loading={loading} />
+            <StatCard
+              label="Uptime"
+              value={(() => {
+                const s = system?.uptime ?? 0;
+                const d = Math.floor(s / 86400);
+                const h = Math.floor((s % 86400) / 3600);
+                return d > 0 ? `${d}d ${h}h` : `${h}h ${Math.floor((s % 3600) / 60)}m`;
+              })()}
+              icon={<Clock />}
+              tone="emerald"
+              loading={loading}
+            />
+          </div>
+        </>
+      )}
+    </>
   );
 }

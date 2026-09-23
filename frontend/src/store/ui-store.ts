@@ -1,25 +1,30 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+
+export type Theme = 'light' | 'dark' | 'system';
 
 interface UIState {
-  sidebarOpen: boolean;
-  darkMode: boolean;
-  fullscreenMode: boolean;
-  toggleSidebar: () => void;
-  setSidebarOpen: (open: boolean) => void;
-  toggleDarkMode: () => void;
-  setDarkMode: (dark: boolean) => void;
-  toggleFullscreen: () => void;
-  setFullscreenMode: (fullscreen: boolean) => void;
+  theme: Theme;
+  sidebarCollapsed: boolean;
+  mobileNavOpen: boolean;
+  setTheme: (theme: Theme) => void;
+  toggleSidebarCollapsed: () => void;
+  setMobileNavOpen: (open: boolean) => void;
 }
 
-export const useUIStore = create<UIState>((set) => ({
-  sidebarOpen: true,
-  darkMode: false,
-  fullscreenMode: false,
-  toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
-  setSidebarOpen: (open) => set({ sidebarOpen: open }),
-  toggleDarkMode: () => set((state) => ({ darkMode: !state.darkMode })),
-  setDarkMode: (dark) => set({ darkMode: dark }),
-  toggleFullscreen: () => set((state) => ({ fullscreenMode: !state.fullscreenMode })),
-  setFullscreenMode: (fullscreen) => set({ fullscreenMode: fullscreen }),
-}));
+export const useUIStore = create<UIState>()(
+  persist(
+    (set) => ({
+      theme: 'system',
+      sidebarCollapsed: false,
+      mobileNavOpen: false,
+      setTheme: (theme) => set({ theme }),
+      toggleSidebarCollapsed: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+      setMobileNavOpen: (open) => set({ mobileNavOpen: open }),
+    }),
+    {
+      name: 'ui-storage',
+      partialize: (state) => ({ theme: state.theme, sidebarCollapsed: state.sidebarCollapsed }),
+    }
+  )
+);

@@ -1,54 +1,68 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface ButtonProps {
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost';
-  size?: 'sm' | 'md' | 'lg';
+type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'gradient' | 'white';
+type Size = 'sm' | 'md' | 'lg' | 'icon' | 'icon-sm';
+
+const base =
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl font-medium select-none ' +
+  'transition-[background-color,border-color,color,box-shadow,transform] duration-150 active:scale-[0.98] ' +
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ring) ' +
+  'disabled:pointer-events-none disabled:opacity-50 [&_svg]:shrink-0';
+
+const variants: Record<Variant, string> = {
+  primary:
+    'bg-brand-600 text-white shadow-sm shadow-brand-600/25 hover:bg-brand-700 dark:bg-brand-500 dark:hover:bg-brand-600',
+  secondary:
+    'bg-slate-900 text-white hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200',
+  outline:
+    'border border-border bg-surface text-foreground shadow-xs hover:bg-surface-muted hover:border-slate-300 dark:hover:border-slate-600',
+  ghost: 'text-muted hover:bg-surface-muted hover:text-foreground',
+  destructive: 'bg-red-600 text-white shadow-sm shadow-red-600/25 hover:bg-red-700',
+  gradient:
+    'bg-brand-gradient text-white shadow-lg shadow-brand-600/25 hover:shadow-xl hover:shadow-brand-600/30 hover:brightness-110',
+  white: 'bg-white text-slate-900 shadow-sm hover:bg-slate-100',
+};
+
+const sizes: Record<Size, string> = {
+  sm: 'h-9 px-3 text-sm [&_svg]:size-4',
+  md: 'h-11 px-4 text-sm [&_svg]:size-4',
+  lg: 'h-12 px-6 text-base [&_svg]:size-5',
+  icon: 'size-10 [&_svg]:size-5',
+  'icon-sm': 'size-8 rounded-lg [&_svg]:size-4',
+};
+
+export function buttonVariants({ variant = 'primary', size = 'md', className }: { variant?: Variant; size?: Size; className?: string } = {}) {
+  return cn(base, variants[variant], sizes[size], className);
+}
+
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: Variant;
+  size?: Size;
   isLoading?: boolean;
-  disabled?: boolean;
-  className?: string;
-  onClick?: () => void;
-  type?: 'button' | 'submit' | 'reset';
-  children: React.ReactNode;
+  /** Render as a Next.js link styled like a button. */
+  href?: string;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = 'primary', size = 'md', isLoading, children, disabled, onClick, type = 'button' }, ref) => {
-    const baseStyles = 'inline-flex items-center justify-center rounded-xl font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed';
-    
-    const variants = {
-      primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500 shadow-lg shadow-blue-500/30',
-      secondary: 'bg-slate-800 text-white hover:bg-slate-700 focus:ring-slate-500 shadow-lg shadow-slate-500/30',
-      outline: 'border-2 border-blue-600 text-blue-600 hover:bg-blue-50 focus:ring-blue-500 dark:hover:bg-blue-900/20',
-      ghost: 'text-slate-700 hover:bg-slate-100 focus:ring-slate-500 dark:text-slate-300 dark:hover:bg-slate-800',
-      destructive: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500 shadow-lg shadow-red-500/30',
-    };
-    
-    const sizes = {
-      sm: 'px-3 py-1.5 text-sm',
-      md: 'px-4 py-2 text-base',
-      lg: 'px-6 py-3 text-lg',
-    };
+  ({ className, variant = 'primary', size = 'md', isLoading, children, disabled, href, type = 'button', ...props }, ref) => {
+    const classes = buttonVariants({ variant, size, className });
+
+    if (href) {
+      return (
+        <Link href={href} className={classes} aria-label={props['aria-label']} title={props.title}>
+          {children}
+        </Link>
+      );
+    }
 
     return (
-      <motion.button
-        ref={ref}
-        className={cn(baseStyles, variants[variant], sizes[size], className)}
-        disabled={disabled || isLoading}
-        onClick={onClick}
-        type={type}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.98 }}
-      >
-        {isLoading && (
-          <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        )}
+      <button ref={ref} type={type} className={classes} disabled={disabled || isLoading} aria-busy={isLoading || undefined} {...props}>
+        {isLoading && <Loader2 className="animate-spin" aria-hidden="true" />}
         {children}
-      </motion.button>
+      </button>
     );
   }
 );

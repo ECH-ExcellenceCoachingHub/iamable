@@ -1,13 +1,13 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-interface User {
+export interface User {
   id: string;
   name: string;
   email: string;
   role: string;
   profileImage?: string;
-  accessibilityPreferences?: any;
+  accessibilityPreferences?: Record<string, unknown>;
 }
 
 interface AuthState {
@@ -27,20 +27,20 @@ export const useAuthStore = create<AuthState>()(
       accessToken: null,
       refreshToken: null,
       isAuthenticated: false,
-      setAuth: (user, accessToken, refreshToken) =>
-        set({
-          user,
-          accessToken,
-          refreshToken,
-          isAuthenticated: true,
-        }),
-      logout: () =>
-        set({
-          user: null,
-          accessToken: null,
-          refreshToken: null,
-          isAuthenticated: false,
-        }),
+      setAuth: (user, accessToken, refreshToken) => {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('accessToken', accessToken);
+          localStorage.setItem('refreshToken', refreshToken);
+        }
+        set({ user, accessToken, refreshToken, isAuthenticated: true });
+      },
+      logout: () => {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+        }
+        set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
+      },
       updateUser: (userData) =>
         set((state) => ({
           user: state.user ? { ...state.user, ...userData } : null,

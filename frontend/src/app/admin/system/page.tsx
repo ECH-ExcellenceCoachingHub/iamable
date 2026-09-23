@@ -1,17 +1,19 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Cpu, HardDrive, Users, Activity, Clock, AlertTriangle, CheckCircle, Server } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import React, { useEffect } from 'react';
+import { Activity, AlertTriangle, Clock, Cpu, HardDrive, MemoryStick, RefreshCw, ShieldCheck, Users } from 'lucide-react';
+import { PageHeader } from '@/components/layout/app-shell';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { StatCard } from '@/components/ui/stat-card';
+import { Badge, type BadgeTone } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { ErrorState, Skeleton } from '@/components/ui/feedback';
 import { api } from '@/lib/api';
+import { cn, formatNumber } from '@/lib/utils';
+import { useApi } from '@/lib/hooks';
 
 interface DashboardStats {
-  users: {
-    total: number;
-    active: number;
-    admins: number;
-  };
+  users: { total: number; active: number; admins: number };
   system: {
     cpuUsage: number;
     memoryUsage: number;
@@ -24,293 +26,163 @@ interface DashboardStats {
   };
 }
 
-export default function SystemMonitorPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(true);
+const REFRESH_MS = 30000;
 
-  useEffect(() => {
-    fetchStats();
-    const interval = setInterval(fetchStats, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
-  }, []);
+function health(value: number, warn: number, critical: number): { label: string; tone: BadgeTone; bar: string; ring: string } {
+  if (value >= critical) return { label: 'Critical', tone: 'danger', bar: 'stroke-red-500', ring: 'text-red-500' };
+  if (value >= warn) return { label: 'Warning', tone: 'warning', bar: 'stroke-amber-500', ring: 'text-amber-500' };
+  return { label: 'Healthy', tone: 'success', bar: 'stroke-emerald-500', ring: 'text-emerald-500' };
+}
 
-  const fetchStats = async () => {
-    try {
-      const data = await api.admin.getDashboardStats();
-      setStats(data);
-    } catch (error) {
-      console.error('Failed to fetch system stats');
-    } finally {
-      setLoading(false);
-    }
-  };
+function formatUptime(seconds: number) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m`;
+}
 
-  const formatUptime = (seconds: number) => {
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${days}d ${hours}h ${minutes}m`;
-  };
-
-  const getHealthStatus = (value: number, thresholds: { warning: number; critical: number }) => {
-    if (value >= thresholds.critical) return { status: 'critical', color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30' };
-    if (value >= thresholds.warning) return { status: 'warning', color: 'text-yellow-600', bg: 'bg-yellow-100 dark:bg-yellow-900/30' };
-    return { status: 'healthy', color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30' };
-  };
-
-  if (loading) {
-    return <div className="text-center py-8 text-slate-500">Loading system metrics...</div>;
-  }
-
-  const cpuHealth = getHealthStatus(stats?.system.cpuUsage || 0, { warning: 70, critical: 90 });
-  const memoryHealth = getHealthStatus(stats?.system.memoryUsage || 0, { warning: 70, critical: 90 });
-  const diskHealth = getHealthStatus(stats?.system.diskUsage || 0, { warning: 80, critical: 95 });
-
-  const systemCards = [
-    {
-      title: 'CPU Usage',
-      value: `${(stats?.system.cpuUsage || 0).toFixed(1)}%`,
-      icon: <Cpu className="w-6 h-6 text-blue-600" />,
-      color: 'from-blue-100 to-blue-200 dark:from-blue-900/30 dark:to-blue-800/30',
-      health: cpuHealth,
-    },
-    {
-      title: 'Memory Usage',
-      value: `${(stats?.system.memoryUsage || 0).toFixed(1)}%`,
-      icon: <Server className="w-6 h-6 text-purple-600" />,
-      color: 'from-purple-100 to-purple-200 dark:from-purple-900/30 dark:to-purple-800/30',
-      health: memoryHealth,
-    },
-    {
-      title: 'Disk Usage',
-      value: `${(stats?.system.diskUsage || 0).toFixed(1)}%`,
-      icon: <HardDrive className="w-6 h-6 text-green-600" />,
-      color: 'from-green-100 to-green-200 dark:from-green-900/30 dark:to-green-800/30',
-      health: diskHealth,
-    },
-    {
-      title: 'System Uptime',
-      value: formatUptime(stats?.system.uptime || 0),
-      icon: <Clock className="w-6 h-6 text-orange-600" />,
-      color: 'from-orange-100 to-orange-200 dark:from-orange-900/30 dark:to-orange-800/30',
-      health: { status: 'healthy', color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30' },
-    },
-  ];
-
-  const performanceCards = [
-    {
-      title: 'Active Users',
-      value: stats?.system.activeUsers || 0,
-      icon: <Users className="w-6 h-6 text-teal-600" />,
-      color: 'from-teal-100 to-teal-200 dark:from-teal-900/30 dark:to-teal-800/30',
-    },
-    {
-      title: 'Total Requests',
-      value: stats?.system.totalRequests || 0,
-      icon: <Activity className="w-6 h-6 text-indigo-600" />,
-      color: 'from-indigo-100 to-indigo-200 dark:from-indigo-900/30 dark:to-indigo-800/30',
-    },
-    {
-      title: 'Avg Response Time',
-      value: `${(stats?.system.averageResponseTime || 0).toFixed(2)}ms`,
-      icon: <Clock className="w-6 h-6 text-pink-600" />,
-      color: 'from-pink-100 to-pink-200 dark:from-pink-900/30 dark:to-pink-800/30',
-    },
-    {
-      title: 'Error Rate',
-      value: `${((stats?.system.errorRate || 0) * 100).toFixed(2)}%`,
-      icon: <AlertTriangle className="w-6 h-6 text-red-600" />,
-      color: 'from-red-100 to-red-200 dark:from-red-900/30 dark:to-red-800/30',
-    },
-  ];
+function Gauge({ label, value, icon, warn, critical, loading }: { label: string; value: number; icon: React.ReactNode; warn: number; critical: number; loading: boolean }) {
+  const h = health(value, warn, critical);
+  const radius = 42;
+  const circumference = 2 * Math.PI * radius;
+  const pct = Math.max(0, Math.min(100, value));
 
   return (
-    <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-          System Monitor
-        </h1>
-        <p className="text-slate-600 dark:text-slate-300">
-          Real-time system health and performance metrics
-        </p>
-      </motion.div>
+    <Card>
+      <CardContent className="flex flex-col items-center text-center">
+        <div className="relative size-32">
+          <svg viewBox="0 0 100 100" className="size-full -rotate-90" aria-hidden="true">
+            <circle cx="50" cy="50" r={radius} fill="none" strokeWidth="8" className="stroke-surface-muted" />
+            {!loading && (
+              <circle
+                cx="50"
+                cy="50"
+                r={radius}
+                fill="none"
+                strokeWidth="8"
+                strokeLinecap="round"
+                className={cn('transition-[stroke-dashoffset] duration-700', h.bar)}
+                strokeDasharray={circumference}
+                strokeDashoffset={circumference * (1 - pct / 100)}
+              />
+            )}
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-subtle [&_svg]:size-4">{icon}</span>
+            {loading ? (
+              <Skeleton className="mt-1 h-6 w-12" />
+            ) : (
+              <span className="font-display text-2xl font-bold tabular-nums text-foreground">{value.toFixed(0)}%</span>
+            )}
+          </div>
+        </div>
+        <p className="mt-3 font-medium text-foreground">{label}</p>
+        {!loading && (
+          <Badge tone={h.tone} dot className="mt-2">
+            {h.label}
+          </Badge>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
-      {/* System Health Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {systemCards.map((card, index) => (
-          <motion.div
-            key={index}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-          >
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                    {card.title}
-                  </CardTitle>
-                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${card.color} flex items-center justify-center`}>
-                    {card.icon}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <div className="text-3xl font-bold text-slate-900 dark:text-white">
-                    {card.value}
-                  </div>
-                  <div className={`px-2 py-1 rounded-full text-xs font-medium ${card.health.bg} ${card.health.color}`}>
-                    {card.health.status}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
+async function fetchSystemStats() {
+  const stats = (await api.admin.getDashboardStats()) as DashboardStats;
+  return { stats, fetchedAt: new Date() };
+}
 
-      {/* Performance Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {performanceCards.map((card, index) => (
-          <motion.div
-            key={index}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 + 0.2 }}
-          >
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                    {card.title}
-                  </CardTitle>
-                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${card.color} flex items-center justify-center`}>
-                    {card.icon}
+export default function SystemMonitorPage() {
+  const { data, loading: fetching, error, reload: load } = useApi(fetchSystemStats, 'Could not load system metrics.');
+  const stats = data?.stats;
+  const updatedAt = data?.fetchedAt;
+  // Only show skeletons on the first load; later refreshes keep the current numbers on screen
+  const loading = fetching && !data;
+  const refreshing = fetching && !!data;
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') load();
+    }, REFRESH_MS);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const s = stats?.system;
+
+  return (
+    <>
+      <PageHeader
+        title="System monitor"
+        description={
+          <span className="flex items-center gap-2">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+            </span>
+            Auto-refreshes every 30 seconds{updatedAt && ` · Updated ${updatedAt.toLocaleTimeString()}`}
+          </span>
+        }
+        actions={
+          <Button variant="outline" onClick={load} disabled={refreshing || loading}>
+            <RefreshCw className={cn(refreshing && 'animate-spin')} />
+            Refresh
+          </Button>
+        }
+      />
+
+      {error && !stats ? (
+        <ErrorState message={error} onRetry={load} />
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Gauge label="CPU usage" value={s?.cpuUsage ?? 0} icon={<Cpu />} warn={70} critical={90} loading={loading} />
+            <Gauge label="Memory usage" value={s?.memoryUsage ?? 0} icon={<MemoryStick />} warn={70} critical={90} loading={loading} />
+            <Gauge label="Disk usage" value={s?.diskUsage ?? 0} icon={<HardDrive />} warn={80} critical={95} loading={loading} />
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Uptime" value={formatUptime(s?.uptime ?? 0)} icon={<Clock />} tone="emerald" loading={loading} />
+            <StatCard label="Total requests" value={formatNumber(s?.totalRequests ?? 0)} icon={<Activity />} loading={loading} />
+            <StatCard label="Avg. response" value={`${(s?.averageResponseTime ?? 0).toFixed(0)} ms`} icon={<Clock />} tone="violet" loading={loading} />
+            <StatCard
+              label="Error rate"
+              value={`${((s?.errorRate ?? 0) * 100).toFixed(2)}%`}
+              icon={<AlertTriangle />}
+              tone={(s?.errorRate ?? 0) > 0.05 ? 'rose' : 'sky'}
+              loading={loading}
+            />
+          </div>
+
+          <Card className="mt-6">
+            <CardHeader>
+              <CardTitle>
+                <Users className="size-4 text-subtle" />
+                Users
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-4 sm:grid-cols-4">
+                {[
+                  { label: 'Total users', value: stats?.users.total ?? 0, icon: <Users /> },
+                  { label: 'Verified users', value: stats?.users.active ?? 0, icon: <ShieldCheck /> },
+                  { label: 'Administrators', value: stats?.users.admins ?? 0, icon: <ShieldCheck /> },
+                  { label: 'Active now', value: s?.activeUsers ?? 0, icon: <Activity /> },
+                ].map((item) => (
+                  <div key={item.label} className="flex flex-col-reverse rounded-xl bg-surface-muted p-4">
+                    <dt className="mt-1 flex items-center gap-1.5 text-sm text-muted [&_svg]:size-3.5">
+                      {item.icon}
+                      {item.label}
+                    </dt>
+                    <dd className="font-display text-2xl font-bold tabular-nums text-foreground">
+                      {loading ? <Skeleton className="h-7 w-12" /> : formatNumber(item.value)}
+                    </dd>
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-bold text-slate-900 dark:text-white">
-                  {card.value}
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* User Statistics */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="w-5 h-5" />
-              User Statistics
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                <div className="text-sm text-slate-600 dark:text-slate-400 mb-1">Total Users</div>
-                <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {stats?.users.total || 0}
-                </div>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                <div className="text-sm text-slate-600 dark:text-slate-400 mb-1">Active Users</div>
-                <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {stats?.users.active || 0}
-                </div>
-              </div>
-              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                <div className="text-sm text-slate-600 dark:text-slate-400 mb-1">Admin Users</div>
-                <div className="text-2xl font-bold text-slate-900 dark:text-white">
-                  {stats?.users.admins || 0}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Resource Usage Bars */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Server className="w-5 h-5" />
-              Resource Usage
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">CPU Usage</span>
-                  <span className="text-sm text-slate-600 dark:text-slate-400">{(stats?.system.cpuUsage || 0).toFixed(1)}%</span>
-                </div>
-                <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${stats?.system.cpuUsage || 0}%` }}
-                    transition={{ duration: 0.5 }}
-                    className={`h-full rounded-full ${
-                      (stats?.system.cpuUsage || 0) > 90 ? 'bg-red-500' :
-                      (stats?.system.cpuUsage || 0) > 70 ? 'bg-yellow-500' : 'bg-green-500'
-                    }`}
-                  />
-                </div>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Memory Usage</span>
-                  <span className="text-sm text-slate-600 dark:text-slate-400">{(stats?.system.memoryUsage || 0).toFixed(1)}%</span>
-                </div>
-                <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${stats?.system.memoryUsage || 0}%` }}
-                    transition={{ duration: 0.5 }}
-                    className={`h-full rounded-full ${
-                      (stats?.system.memoryUsage || 0) > 90 ? 'bg-red-500' :
-                      (stats?.system.memoryUsage || 0) > 70 ? 'bg-yellow-500' : 'bg-green-500'
-                    }`}
-                  />
-                </div>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Disk Usage</span>
-                  <span className="text-sm text-slate-600 dark:text-slate-400">{(stats?.system.diskUsage || 0).toFixed(1)}%</span>
-                </div>
-                <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${stats?.system.diskUsage || 0}%` }}
-                    transition={{ duration: 0.5 }}
-                    className={`h-full rounded-full ${
-                      (stats?.system.diskUsage || 0) > 95 ? 'bg-red-500' :
-                      (stats?.system.diskUsage || 0) > 80 ? 'bg-yellow-500' : 'bg-green-500'
-                    }`}
-                  />
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </motion.div>
-    </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </>
   );
 }

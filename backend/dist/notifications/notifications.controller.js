@@ -40,11 +40,11 @@ let NotificationsController = class NotificationsController {
     async markAllAsRead(req) {
         return this.notificationsService.markAllAsRead(req.user.id);
     }
-    async remove(id, req) {
-        return this.notificationsService.remove(id, req.user.id);
-    }
     async clearAll(req) {
         return this.notificationsService.clearAll(req.user.id);
+    }
+    async remove(id, req) {
+        return this.notificationsService.remove(id, req.user.id);
     }
 };
 exports.NotificationsController = NotificationsController;
@@ -92,6 +92,13 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], NotificationsController.prototype, "markAllAsRead", null);
 __decorate([
+    (0, common_1.Delete)('clear-all'),
+    __param(0, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], NotificationsController.prototype, "clearAll", null);
+__decorate([
     (0, common_1.Delete)(':id'),
     __param(0, (0, common_1.Param)('id')),
     __param(1, (0, common_1.Request)()),
@@ -99,13 +106,6 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], NotificationsController.prototype, "remove", null);
-__decorate([
-    (0, common_1.Delete)('clear-all'),
-    __param(0, (0, common_1.Request)()),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object]),
-    __metadata("design:returntype", Promise)
-], NotificationsController.prototype, "clearAll", null);
 exports.NotificationsController = NotificationsController = __decorate([
     (0, common_1.Controller)('notifications'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),

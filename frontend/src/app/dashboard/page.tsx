@@ -1,139 +1,205 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { useAuthStore } from '@/store/auth-store';
-import { useRouter } from 'next/navigation';
-import { Hand, Mic, Type, Activity, Bookmark, TrendingUp } from 'lucide-react';
-import { api } from '@/lib/api';
+import React from 'react';
 import Link from 'next/link';
+import { Activity, ArrowRight, ArrowUpRight, Bookmark, Clock, GraduationCap, Hand, History, Mic, Target, Type } from 'lucide-react';
+import { useAuthStore } from '@/store/auth-store';
+import { api } from '@/lib/api';
+import { PageHeader } from '@/components/layout/app-shell';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { StatCard } from '@/components/ui/stat-card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { EmptyState, ErrorState, Skeleton } from '@/components/ui/feedback';
+import { formatRelativeTime } from '@/lib/utils';
+import { useApi } from '@/lib/hooks';
+
+interface Stats {
+  totalTranslations: number;
+  savedTranslations: number;
+  avgConfidence: number;
+}
+
+interface Translation {
+  _id: string;
+  inputType: 'sign-to-text' | 'text-to-sign' | 'voice-to-sign';
+  inputContent: string;
+  translatedText: string;
+  confidenceScore: number;
+  createdAt: string;
+}
+
+const modes = [
+  {
+    icon: <Hand />,
+    title: 'Sign to Text',
+    description: 'Use your camera to translate sign language into text and speech.',
+    href: '/dashboard/translation',
+    tone: 'from-brand-500 to-sky-500',
+  },
+  {
+    icon: <Mic />,
+    title: 'Voice to Sign',
+    description: 'Speak and see your words turned into sign language.',
+    href: '/dashboard/voice',
+    tone: 'from-violet-500 to-fuchsia-500',
+  },
+  {
+    icon: <Type />,
+    title: 'Text to Sign',
+    description: 'Type a message and play it back sign by sign.',
+    href: '/dashboard/text-to-sign',
+    tone: 'from-emerald-500 to-teal-500',
+  },
+  {
+    icon: <GraduationCap />,
+    title: 'Learn Sign Language',
+    description: 'Lessons, 8,500+ signs, the alphabet and quizzes.',
+    href: '/dashboard/learn',
+    tone: 'from-amber-500 to-orange-500',
+  },
+];
+
+const typeMeta: Record<Translation['inputType'], { label: string; icon: React.ReactNode; tone: 'brand' | 'violet' | 'success' }> = {
+  'sign-to-text': { label: 'Sign to text', icon: <Hand />, tone: 'brand' },
+  'voice-to-sign': { label: 'Voice to sign', icon: <Mic />, tone: 'violet' },
+  'text-to-sign': { label: 'Text to sign', icon: <Type />, tone: 'success' },
+};
+
+function greeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+async function fetchDashboard() {
+  const [stats, translations] = await Promise.all([api.translations.getStats(), api.translations.getAll()]);
+  return {
+    stats: stats as Stats,
+    recent: (Array.isArray(translations) ? translations.slice(0, 6) : []) as Translation[],
+  };
+}
 
 export default function DashboardPage() {
-  const { user, isAuthenticated } = useAuthStore();
-  const router = useRouter();
-  const [stats, setStats] = React.useState({
-    totalTranslations: 0,
-    savedTranslations: 0,
-    avgConfidence: 0,
-  });
-  const [isHydrated, setIsHydrated] = useState(false);
-
-  useEffect(() => {
-    // Wait for zustand persist to hydrate from localStorage
-    setIsHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isHydrated) return;
-    
-    if (!isAuthenticated) {
-      router.push('/login');
-    } else {
-      fetchStats();
-    }
-  }, [isAuthenticated, router, isHydrated]);
-
-  if (!isHydrated) {
-    return null;
-  }
-
-  const fetchStats = async () => {
-    try {
-      const data = await api.translations.getStats();
-      setStats(data);
-    } catch (error) {
-      console.error('Failed to fetch stats');
-    }
-  };
-
-  const translationModes = [
-    {
-      icon: Hand,
-      title: 'Sign to Text',
-      description: 'Real-time sign language translation',
-      href: '/dashboard/translation',
-      color: 'bg-blue-500',
-      hoverColor: 'hover:bg-blue-600',
-    },
-    {
-      icon: Mic,
-      title: 'Voice to Sign',
-      description: 'Convert voice to sign language',
-      href: '/dashboard/voice',
-      color: 'bg-teal-500',
-      hoverColor: 'hover:bg-teal-600',
-    },
-    {
-      icon: Type,
-      title: 'Text to Sign',
-      description: 'Transform text to animations',
-      href: '/dashboard/text-to-sign',
-      color: 'bg-purple-500',
-      hoverColor: 'hover:bg-purple-600',
-    },
-  ];
+  const user = useAuthStore((s) => s.user);
+  const { data, loading, error, reload: load } = useApi(fetchDashboard, 'Could not load your dashboard.');
+  const stats = data?.stats;
+  const recent = data?.recent ?? [];
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
-          Welcome, {user?.name?.split(' ')[0] || 'User'}
-        </h1>
-        <p className="text-slate-600 dark:text-slate-400 mt-1">
-          Choose a translation mode to get started
-        </p>
-      </div>
+    <>
+      <PageHeader
+        title={`${greeting()}, ${user?.name?.split(' ')[0] || 'there'}`}
+        description="Pick a translation mode, keep learning sign language, or review your recent activity."
+      />
 
-      {/* Translation Modes - Primary Focus */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {translationModes.map((mode) => (
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {modes.map((mode) => (
           <Link
             key={mode.href}
             href={mode.href}
-            className="group relative overflow-hidden rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-6 transition-all duration-300 hover:shadow-xl hover:-translate-y-1"
+            className="group relative overflow-hidden rounded-2xl border border-border bg-surface p-5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-lg hover:shadow-slate-900/5 dark:hover:border-brand-500/40 dark:hover:shadow-black/30"
           >
-            <div className={`absolute top-0 right-0 w-32 h-32 ${mode.color} opacity-5 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-500`} />
-            <mode.icon className={`w-10 h-10 ${mode.color} rounded-xl p-2 mb-4`} />
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
-              {mode.title}
-            </h3>
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              {mode.description}
-            </p>
+            <div
+              className={`absolute -right-8 -top-8 size-28 rounded-full bg-gradient-to-br ${mode.tone} opacity-10 blur-xl transition-opacity group-hover:opacity-25`}
+              aria-hidden="true"
+            />
+            <div className="flex items-start justify-between">
+              <span className={`flex size-11 items-center justify-center rounded-xl bg-gradient-to-br ${mode.tone} text-white shadow-md [&_svg]:size-5`}>
+                {mode.icon}
+              </span>
+              <ArrowUpRight className="size-5 text-subtle transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-brand-600 dark:group-hover:text-brand-400" />
+            </div>
+            <h2 className="mt-4 font-semibold text-foreground">{mode.title}</h2>
+            <p className="mt-1 text-sm text-muted">{mode.description}</p>
           </Link>
         ))}
       </div>
 
-      {/* Stats - Simplified */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm mb-1">
-            <Activity className="w-4 h-4" />
-            <span>Translations</span>
+      {error ? (
+        <ErrorState message={error} onRetry={load} className="mt-6" />
+      ) : (
+        <>
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <StatCard label="Translations" value={stats?.totalTranslations ?? 0} icon={<Activity />} loading={loading} />
+            <StatCard label="Saved" value={stats?.savedTranslations ?? 0} icon={<Bookmark />} tone="violet" loading={loading} />
+            <StatCard
+              label="Avg. confidence"
+              value={`${Math.round((stats?.avgConfidence ?? 0) * 100)}%`}
+              icon={<Target />}
+              tone="emerald"
+              loading={loading}
+            />
           </div>
-          <div className="text-2xl font-bold text-slate-900 dark:text-white">
-            {stats.totalTranslations}
-          </div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm mb-1">
-            <Bookmark className="w-4 h-4" />
-            <span>Saved</span>
-          </div>
-          <div className="text-2xl font-bold text-slate-900 dark:text-white">
-            {stats.savedTranslations}
-          </div>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-          <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm mb-1">
-            <TrendingUp className="w-4 h-4" />
-            <span>Accuracy</span>
-          </div>
-          <div className="text-2xl font-bold text-slate-900 dark:text-white">
-            {Math.round(stats.avgConfidence * 100)}%
-          </div>
-        </div>
-      </div>
-    </div>
+
+          <Card className="mt-6">
+            <CardHeader className="flex-row items-center justify-between">
+              <CardTitle>
+                <History className="size-4 text-subtle" />
+                Recent translations
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-4 sm:pt-4">
+              {loading ? (
+                <div className="space-y-3">
+                  {[0, 1, 2].map((i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="size-9 rounded-lg" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-4 w-1/3" />
+                        <Skeleton className="h-3 w-1/5" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : recent.length === 0 ? (
+                <EmptyState
+                  icon={<History />}
+                  title="No translations yet"
+                  description="Translations you save will show up here."
+                  action={
+                    <Button href="/dashboard/translation" size="sm">
+                      Start translating
+                      <ArrowRight />
+                    </Button>
+                  }
+                  className="py-8"
+                />
+              ) : (
+                <ul className="-mx-2 divide-y divide-border">
+                  {recent.map((t) => {
+                    const meta = typeMeta[t.inputType] ?? typeMeta['sign-to-text'];
+                    const text = t.inputType === 'sign-to-text' ? t.translatedText : t.inputContent;
+                    return (
+                      <li key={t._id} className="flex items-center gap-3 px-2 py-3">
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-muted text-muted [&_svg]:size-4">
+                          {meta.icon}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">{text || '—'}</p>
+                          <p className="flex items-center gap-1 text-xs text-subtle">
+                            <Clock className="size-3" />
+                            {formatRelativeTime(t.createdAt)}
+                          </p>
+                        </div>
+                        <Badge tone={meta.tone} className="hidden sm:inline-flex">
+                          {meta.label}
+                        </Badge>
+                        {t.confidenceScore > 0 && (
+                          <span className="w-12 text-right text-sm font-medium tabular-nums text-muted">
+                            {Math.round(t.confidenceScore * 100)}%
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </>
   );
 }

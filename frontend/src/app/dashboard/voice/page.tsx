@@ -1,581 +1,227 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import { Mic, MicOff, Save, Volume2, RotateCcw, Play, Image as ImageIcon } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Hand, Mic, MicOff, RotateCcw, Save, Volume2 } from 'lucide-react';
+import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select } from '@/components/ui/input';
+import { Alert } from '@/components/ui/feedback';
+import { SignPlayer } from '@/components/sign/sign-player';
+import { SPEECH_LANGUAGES, speak, useSpeechRecognition } from '@/lib/speech';
+import { useSignEngine } from '@/lib/use-sign-engine';
 import { api } from '@/lib/api';
-import { useAuthStore } from '@/store/auth-store';
+import { toast } from '@/store/toast-store';
+import { cn, getErrorMessage } from '@/lib/utils';
 
-// ASL sign language image mapping using lifeprint.com (reliable ASL resource)
-const getSignImageUrl = (letter: string): string => {
-  const lowerLetter = letter.toLowerCase().replace(/[^a-z0-9]/g, '');
-  
-  // Using ASL alphabet images from lifeprint.com
-  const signImageMap: { [key: string]: string } = {
-    'a': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/a.gif',
-    'b': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/b.gif',
-    'c': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/c.gif',
-    'd': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/d.gif',
-    'e': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/e.gif',
-    'f': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/f.gif',
-    'g': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/g.gif',
-    'h': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/h.gif',
-    'i': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/i.gif',
-    'j': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/j.gif',
-    'k': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/k.gif',
-    'l': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/l.gif',
-    'm': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/m.gif',
-    'n': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/n.gif',
-    'o': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/o.gif',
-    'p': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/p.gif',
-    'q': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/q.gif',
-    'r': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/r.gif',
-    's': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/s.gif',
-    't': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/t.gif',
-    'u': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/u.gif',
-    'v': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/v.gif',
-    'w': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/w.gif',
-    'x': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/x.gif',
-    'y': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/y.gif',
-    'z': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/z.gif',
-    // Numbers using letter-based fallback
-    '0': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/a.gif',
-    '1': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/b.gif',
-    '2': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/c.gif',
-    '3': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/d.gif',
-    '4': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/e.gif',
-    '5': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/f.gif',
-    '6': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/g.gif',
-    '7': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/h.gif',
-    '8': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/i.gif',
-    '9': 'https://www.lifeprint.com/asl101/fingerspelling/abc-gifs/j.gif',
-  };
-
-  return signImageMap[lowerLetter] || '';
-};
-
-export default function VoiceToSignPage() {
-  const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
-  const [isHydrated, setIsHydrated] = useState(false);
-  const [isListening, setIsListening] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [currentSign, setCurrentSign] = useState('');
-  const [signImages, setSignImages] = useState<{ letter: string; imageUrl: string }[]>([]);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [imageLoadErrors, setImageLoadErrors] = useState<Set<number>>(new Set());
-  const [recognitionStatus, setRecognitionStatus] = useState<'idle' | 'starting' | 'listening' | 'error'>('idle');
-  const [audioLevel, setAudioLevel] = useState(0);
-  const [selectedLanguage, setSelectedLanguage] = useState('rw-RW');
-  const recognitionRef = useRef<any>(null);
-  const isListeningRef = useRef(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+/** Tracks microphone input level (0–100) while `active` is true. */
+function useMicLevel(active: boolean) {
+  const [level, setLevel] = useState(0);
+  const cleanupRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    setIsHydrated(true);
-  }, []);
+    if (!active || !navigator.mediaDevices?.getUserMedia) return;
+    let cancelled = false;
+    let frame = 0;
 
-  useEffect(() => {
-    if (!isHydrated) return;
-    if (!isAuthenticated) {
-      router.push('/login');
-    }
-  }, [isAuthenticated, router, isHydrated]);
-
-  const convertToSign = (text: string) => {
-    console.log('convertToSign called with:', text);
-    const words = text.split(' ');
-    const lastWord = words[words.length - 1];
-    if (lastWord) {
-      setCurrentSign(lastWord);
-    }
-    
-    // Generate sign images for the full text in real-time
-    if (text.trim()) {
-      const letters = text.toLowerCase().replace(/[^a-z0-9\s]/g, '').split('');
-      console.log('Letters:', letters);
-      const images = letters.map(letter => ({
-        letter: letter.toUpperCase(),
-        imageUrl: getSignImageUrl(letter)
-      })).filter(item => item.imageUrl);
-      console.log('Sign images generated:', images.length, 'images');
-      setSignImages(images);
-      setImageLoadErrors(new Set());
-    } else {
-      console.log('Text is empty, clearing sign images');
-      setSignImages([]);
-    }
-  };
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // Check for browser support
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      
-      if (!SpeechRecognition) {
-        console.error('Speech recognition is not supported in this browser');
-        alert('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.');
-        return;
-      }
-
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = selectedLanguage;
-
-      recognition.onstart = () => {
-        console.log('Speech recognition started');
-        setRecognitionStatus('listening');
-      };
-
-      recognition.onresult = (event: any) => {
-        console.log('Speech recognition result received');
-        let finalTranscript = '';
-        let interimTranscript = '';
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          console.log('Transcript:', transcript, 'isFinal:', event.results[i].isFinal);
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript + ' ';
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-
-        setTranscript(finalTranscript || interimTranscript);
-        
-        // Convert to sign in real-time for both interim and final results
-        const textToConvert = finalTranscript || interimTranscript;
-        if (textToConvert) {
-          convertToSign(textToConvert.trim());
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        // Ignore no-speech errors as they're normal when user isn't speaking
-        if (event.error === 'no-speech') {
-          console.log('No speech detected, continuing to listen...');
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
           return;
         }
-        console.error('Speech recognition error:', event.error);
-        if (event.error === 'not-allowed') {
-          setRecognitionStatus('error');
-          alert('Microphone access denied. Please allow microphone access in your browser settings and refresh the page.');
-        } else {
-          setRecognitionStatus('error');
-        }
-        setIsListening(false);
-        isListeningRef.current = false;
-      };
-
-      recognition.onend = () => {
-        console.log('Speech recognition ended, isListeningRef.current:', isListeningRef.current);
-        // Restart recognition if we're supposed to be listening
-        if (isListeningRef.current) {
-          try {
-            recognition.start();
-          } catch (error) {
-            console.error('Error restarting recognition:', error);
-            setIsListening(false);
-            isListeningRef.current = false;
-          }
-        }
-      };
-
-      recognitionRef.current = recognition;
-      console.log('Speech recognition initialized');
-    }
+        const ctx = new AudioContext();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        const tick = () => {
+          analyser.getByteFrequencyData(data);
+          const avg = data.reduce((a, b) => a + b, 0) / data.length;
+          setLevel(Math.min(100, avg * 1.2));
+          frame = requestAnimationFrame(tick);
+        };
+        tick();
+        cleanupRef.current = () => {
+          cancelAnimationFrame(frame);
+          stream.getTracks().forEach((t) => t.stop());
+          ctx.close();
+        };
+      })
+      .catch(() => {
+        /* Level meter is optional; recognition reports permission errors itself */
+      });
 
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
+      cancelled = true;
+      cleanupRef.current();
+      cleanupRef.current = () => {};
+      setLevel(0);
     };
-  }, [selectedLanguage]);
+  }, [active]);
 
-  if (!isHydrated) {
-    return null;
-  }
+  return level;
+}
 
-  const toggleListening = async () => {
-    if (!recognitionRef.current) {
-      alert('Speech recognition is not supported in your browser');
-      return;
-    }
+export default function VoiceToSignPage() {
+  const [lang, setLang] = useState('rw-RW');
+  const [saving, setSaving] = useState(false);
+  const speech = useSpeechRecognition(lang);
+  const level = useMicLevel(speech.status === 'listening');
 
-    if (isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      isListeningRef.current = false;
-      setRecognitionStatus('idle');
-      setAudioLevel(0);
-      
-      // Stop audio monitoring
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-      }
-    } else {
-      setRecognitionStatus('starting');
-      
-      // Request microphone permission first
-      try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          streamRef.current = stream;
-          console.log('Microphone access granted');
-          
-          // Set up audio level monitoring
-          const audioContext = new AudioContext();
-          audioContextRef.current = audioContext;
-          const analyser = audioContext.createAnalyser();
-          analyserRef.current = analyser;
-          const source = audioContext.createMediaStreamSource(stream);
-          source.connect(analyser);
-          analyser.fftSize = 256;
-          
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          
-          const updateAudioLevel = () => {
-            if (!isListeningRef.current) return;
-            analyser.getByteFrequencyData(dataArray);
-            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-            setAudioLevel(average);
-            requestAnimationFrame(updateAudioLevel);
-          };
-          
-          updateAudioLevel();
-        }
-      } catch (error) {
-        console.error('Microphone access denied:', error);
-        setRecognitionStatus('error');
-        alert('Microphone access denied. Please allow microphone access in your browser settings and refresh the page.');
-        return;
-      }
+  const fullText = `${speech.transcript} ${speech.interim}`.trim();
+  const engine = useSignEngine();
+  const frames = useMemo(
+    () => engine?.textToSignFrames(speech.transcript, lang.startsWith('rw') ? 'rw' : lang.startsWith('en') ? 'en' : 'auto') ?? [],
+    [engine, speech.transcript, lang]
+  );
 
-      try {
-        recognitionRef.current.start();
-        setIsListening(true);
-        isListeningRef.current = true;
-      } catch (error) {
-        console.error('Error starting recognition:', error);
-        setRecognitionStatus('error');
-        alert('Failed to start speech recognition. Please check your microphone permissions and try again.');
-      }
-    }
-  };
-
-  const handleImageError = (index: number) => {
-    setImageLoadErrors(prev => new Set(prev).add(index));
-  };
-
-  const handleConvert = () => {
-    if (!transcript.trim() || signImages.length === 0) return;
-    
-    setIsPlaying(true);
-    setCurrentIndex(0);
-    
-    const interval = setInterval(() => {
-      setCurrentIndex(prev => {
-        if (prev >= signImages.length - 1) {
-          clearInterval(interval);
-          setIsPlaying(false);
-          return 0;
-        }
-        return prev + 1;
-      });
-    }, 2000);
-  };
-
-  const handleReset = () => {
-    setTranscript('');
-    setCurrentSign('');
-    setSignImages([]);
-    setIsPlaying(false);
-    setCurrentIndex(0);
-    setImageLoadErrors(new Set());
-    setIsListening(false);
-    isListeningRef.current = false;
-    setRecognitionStatus('idle');
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-    }
-  };
+  const toggle = () => (speech.listening ? speech.stop() : speech.start());
 
   const handleSave = async () => {
-    if (!transcript.trim()) return;
-    
+    if (!speech.transcript.trim()) return;
+    setSaving(true);
     try {
       await api.translations.create({
         inputType: 'voice-to-sign',
-        inputContent: transcript,
-        translatedText: 'Sign language representation',
-        confidenceScore: 0.92,
+        inputContent: speech.transcript.trim(),
+        translatedText: `Signed (${engine?.describeFrames(frames)}): ${speech.transcript.trim()}`,
+        confidenceScore: 1,
       });
-      alert('Translation saved!');
-    } catch (error) {
-      console.error('Error saving translation:', error);
+      toast.success('Translation saved', 'You can find it in your recent translations.');
+    } catch (err) {
+      toast.error('Could not save translation', getErrorMessage(err));
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleSpeak = () => {
-    if ('speechSynthesis' in window && transcript) {
-      const utterance = new SpeechSynthesisUtterance(transcript);
-      utterance.rate = 0.8;
-      window.speechSynthesis.speak(utterance);
-    }
-  };
+  const statusLabel =
+    speech.status === 'listening' ? 'Listening' : speech.status === 'starting' ? 'Starting…' : speech.status === 'error' ? 'Stopped' : 'Ready';
 
   return (
-    <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-          Voice to Sign Language
-        </h1>
-        <p className="text-slate-600 dark:text-slate-300">
-          Convert spoken words into sign language using speech recognition
-        </p>
-      </motion.div>
+    <>
+      <PageHeader title="Voice to Sign" description="Speak naturally and see your words converted into sign language." />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Voice Input */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mic className="w-5 h-5" />
-                Voice Input
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-center p-8 rounded-xl bg-gradient-to-br from-blue-50 to-teal-50 dark:from-blue-900/20 dark:to-teal-900/20">
-                <motion.button
-                  onClick={toggleListening}
-                  className={`w-24 h-24 rounded-full flex items-center justify-center transition-all ${
-                    isListening
-                      ? 'bg-red-500 text-white scale-110'
-                      : 'bg-blue-600 text-white hover:scale-105'
-                  }`}
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  {isListening ? <MicOff className="w-10 h-10" /> : <Mic className="w-10 h-10" />}
-                </motion.button>
-              </div>
+      <div className="grid gap-6 lg:grid-cols-5">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>
+              <Mic className="size-4 text-subtle" />
+              Voice input
+            </CardTitle>
+            <CardDescription>Choose a language, then tap the microphone.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {!speech.supported && (
+              <Alert tone="warning">Speech recognition isn&apos;t supported in this browser. Please use Chrome, Edge or Safari.</Alert>
+            )}
+            {speech.error && <Alert>{speech.error}</Alert>}
 
-              {recognitionStatus !== 'idle' && (
-                <div className="text-center space-y-2">
-                  <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${
-                    recognitionStatus === 'listening' 
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                      : recognitionStatus === 'starting'
-                      ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
-                      : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                  }`}>
-                    <div className={`w-2 h-2 rounded-full ${
-                      recognitionStatus === 'listening' ? 'bg-blue-600 animate-pulse' :
-                      recognitionStatus === 'starting' ? 'bg-yellow-600 animate-pulse' :
-                      'bg-red-600'
-                    }`} />
-                    <span className="text-sm font-medium">
-                      {recognitionStatus === 'listening' ? 'Listening...' :
-                       recognitionStatus === 'starting' ? 'Starting...' :
-                       'Error - Check microphone permissions'}
-                    </span>
-                  </div>
-                  
-                  {recognitionStatus === 'listening' && (
-                    <div className="flex items-center justify-center gap-2">
-                      <span className="text-xs text-slate-500 dark:text-slate-400">Mic Level:</span>
-                      <div className="w-24 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-blue-500 transition-all duration-100"
-                          style={{ width: `${Math.min(audioLevel / 2, 100)}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-slate-500 dark:text-slate-400 w-8">
-                        {Math.round(audioLevel)}
-                      </span>
-                    </div>
+            <div className="flex flex-col items-center gap-4 rounded-xl bg-gradient-to-br from-brand-50 to-violet-50 px-6 py-8 ring-1 ring-inset ring-brand-100 dark:from-brand-500/10 dark:to-violet-500/10 dark:ring-brand-500/20">
+              <div className="relative">
+                {speech.status === 'listening' && (
+                  <span
+                    className="absolute inset-0 rounded-full bg-red-500/30 transition-transform duration-100"
+                    style={{ transform: `scale(${1 + level / 60})` }}
+                    aria-hidden="true"
+                  />
+                )}
+                <button
+                  onClick={toggle}
+                  disabled={!speech.supported}
+                  className={cn(
+                    'relative flex size-24 items-center justify-center rounded-full text-white shadow-xl transition-all active:scale-95 disabled:opacity-50',
+                    speech.listening ? 'bg-red-500 shadow-red-500/30 hover:bg-red-600' : 'bg-brand-600 shadow-brand-600/30 hover:bg-brand-700'
                   )}
-                </div>
-              )}
-
-              <div className="flex items-center gap-4 mb-4">
-                <label className="text-sm text-slate-600 dark:text-slate-300">Language:</label>
-                <select
-                  value={selectedLanguage}
-                  onChange={(e) => setSelectedLanguage(e.target.value)}
-                  className="px-3 py-1 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  aria-label={speech.listening ? 'Stop listening' : 'Start listening'}
+                  aria-pressed={speech.listening}
                 >
-                  <option value="rw-RW">Kinyarwanda</option>
-                  <option value="en-US">English</option>
-                  <option value="fr-FR">French</option>
-                </select>
+                  {speech.listening ? <MicOff className="size-9" /> : <Mic className="size-9" />}
+                </button>
               </div>
-
-              <div className="min-h-[120px] p-4 rounded-xl bg-white/50 dark:bg-slate-800/50 border-2 border-slate-200 dark:border-slate-700">
-                <p className="text-slate-600 dark:text-slate-300">
-                  {transcript || 'Start speaking to see your words converted to sign language...'}
-                </p>
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground" aria-live="polite">
+                <span
+                  className={cn(
+                    'size-2 rounded-full',
+                    speech.status === 'listening'
+                      ? 'animate-pulse bg-red-500'
+                      : speech.status === 'starting'
+                        ? 'animate-pulse bg-amber-500'
+                        : speech.status === 'error'
+                          ? 'bg-red-500'
+                          : 'bg-slate-400'
+                  )}
+                />
+                {statusLabel}
               </div>
+            </div>
 
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleConvert}
-                  disabled={!transcript.trim() || isPlaying}
-                  className="flex-1"
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  {isPlaying ? 'Playing...' : 'Play Signs'}
-                </Button>
-                <Button
-                  onClick={handleReset}
-                  variant="outline"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                </Button>
-              </div>
+            <Select label="Language" value={lang} onChange={(e) => setLang(e.target.value)}>
+              {SPEECH_LANGUAGES.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </Select>
 
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleSpeak}
-                  variant="outline"
-                  disabled={!transcript}
-                  className="flex-1"
-                >
-                  <Volume2 className="w-4 h-4 mr-2" />
-                  Speak
-                </Button>
-                <Button
-                  onClick={handleSave}
-                  disabled={!transcript}
-                  variant="outline"
-                >
-                  <Save className="w-4 h-4 mr-2" />
-                  Save
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Sign Display */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ImageIcon className="w-5 h-5" />
-                Sign Language Display
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="bg-gradient-to-br from-blue-50 to-teal-50 dark:from-blue-900/20 dark:to-teal-900/20 rounded-xl p-8 min-h-[300px]">
-                {signImages.length > 0 ? (
-                  <div className="space-y-4">
-                    {/* Current sign being played */}
-                    {isPlaying && signImages[currentIndex] && (
-                      <motion.div
-                        key={currentIndex}
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="text-center"
-                      >
-                        <div className="w-48 h-48 mx-auto mb-4 rounded-xl overflow-hidden bg-white shadow-lg flex items-center justify-center">
-                          {!imageLoadErrors.has(currentIndex) ? (
-                            <img
-                              src={signImages[currentIndex].imageUrl}
-                              alt={`Sign for ${signImages[currentIndex].letter}`}
-                              className="w-full h-full object-contain"
-                              onError={() => handleImageError(currentIndex)}
-                            />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-teal-500">
-                              <span className="text-white text-6xl font-bold">
-                                {signImages[currentIndex].letter}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                        <p className="text-4xl font-bold text-slate-900 dark:text-white mb-2">
-                          {signImages[currentIndex].letter}
-                        </p>
-                        <p className="text-slate-600 dark:text-slate-300">
-                          Sign {currentIndex + 1} of {signImages.length}
-                        </p>
-                      </motion.div>
-                    )}
-
-                    {/* All signs grid (when not playing) */}
-                    {!isPlaying && (
-                      <div className="grid grid-cols-6 gap-3">
-                        {signImages.map((item, index) => (
-                          <motion.div
-                            key={index}
-                            initial={{ opacity: 0, scale: 0.8 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ delay: index * 0.02 }}
-                            className="text-center"
-                          >
-                            <div className="w-full aspect-square rounded-xl overflow-hidden bg-white shadow-md mb-2 flex items-center justify-center">
-                              {!imageLoadErrors.has(index) ? (
-                                <img
-                                  src={item.imageUrl}
-                                  alt={`Sign for ${item.letter}`}
-                                  className="w-full h-full object-contain"
-                                  onError={() => handleImageError(index)}
-                                />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-teal-500">
-                                  <span className="text-white text-2xl font-bold">
-                                    {item.letter}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                            <p className="text-sm font-medium text-slate-900 dark:text-white">
-                              {item.letter}
-                            </p>
-                          </motion.div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+            <div>
+              <p className="mb-1.5 text-sm font-medium text-foreground">Transcript</p>
+              <div className="min-h-28 rounded-xl border border-border bg-surface-muted/50 p-4 text-sm leading-relaxed" aria-live="polite">
+                {fullText ? (
+                  <p className="text-foreground">
+                    {speech.transcript}
+                    {speech.interim && <span className="text-subtle"> {speech.interim}</span>}
+                  </p>
                 ) : (
-                  <div className="flex items-center justify-center h-full min-h-[200px] text-slate-400">
-                    <div className="text-center">
-                      <ImageIcon className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                      <p className="text-lg">Start speaking to see sign language images</p>
-                    </div>
-                  </div>
+                  <p className="text-subtle">Your words will appear here as you speak.</p>
                 )}
               </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => speak(speech.transcript, { lang })} disabled={!speech.transcript}>
+                <Volume2 />
+                Speak
+              </Button>
+              <Button onClick={handleSave} disabled={!speech.transcript} isLoading={saving}>
+                {!saving && <Save />}
+                Save
+              </Button>
+              <Button
+                variant="ghost"
+                className="ml-auto"
+                onClick={() => {
+                  speech.stop();
+                  speech.reset();
+                }}
+                disabled={!fullText && !speech.listening}
+              >
+                <RotateCcw />
+                Reset
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-3">
+          <CardHeader>
+            <CardTitle>
+              <Hand className="size-4 text-subtle" />
+              Sign language
+            </CardTitle>
+            <CardDescription>
+              {frames.length
+                ? `${engine?.describeFrames(frames)}. Signs update as each phrase is recognised.`
+                : 'Common words play as animated signs; other words are fingerspelled.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SignPlayer frames={frames} emptyIcon={<Mic />} emptyText="Start speaking to see your words in sign language." />
+          </CardContent>
+        </Card>
       </div>
-    </div>
+    </>
   );
 }

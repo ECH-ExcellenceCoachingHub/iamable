@@ -108,10 +108,17 @@ export class AdminService {
   }
 
   async getAllUsers(page: number = 1, limit: number = 10, search?: string) {
-    const query = search ? { $or: [{ name: { $regex: search, $options: 'i' } }, { email: { $regex: search, $options: 'i' } }] } : {};
+    // Escape user input so it is matched literally, not as a regular expression
+    const pattern = search?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const query = pattern ? { $or: [{ name: { $regex: pattern, $options: 'i' } }, { email: { $regex: pattern, $options: 'i' } }] } : {};
     const skip = (page - 1) * limit;
-    
-    const users = await this.userModel.find(query).skip(skip).limit(limit).sort({ createdAt: -1 });
+
+    const users = await this.userModel
+      .find(query)
+      .select('-password')
+      .skip(skip)
+      .limit(limit)
+      .sort({ createdAt: -1 });
     const total = await this.userModel.countDocuments(query);
     
     return { users, total, page, limit };

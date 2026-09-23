@@ -1,137 +1,171 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { motion } from 'framer-motion';
-import { Menu, X, LogOut, User, Settings } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { AnimatePresence, motion } from 'framer-motion';
+import { LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
 import { useAuthStore } from '@/store/auth-store';
-import { useUIStore } from '@/store/ui-store';
+import { useHydrated } from '@/lib/hooks';
 import { Button } from '@/components/ui/button';
+import { Logo } from '@/components/ui/logo';
+import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { cn } from '@/lib/utils';
 
-export const Navbar = () => {
-  const { isAuthenticated, user, logout } = useAuthStore();
-  const { darkMode, toggleDarkMode } = useUIStore();
-  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+const navLinks = [
+  { href: '/features', label: 'Features' },
+  { href: '/pricing', label: 'Pricing' },
+  { href: '/about', label: 'About' },
+  { href: '/faq', label: 'FAQ' },
+  { href: '/contact', label: 'Contact' },
+];
 
-  const navLinks = [
-    { href: '/', label: 'Home' },
-    { href: '/features', label: 'Features' },
-    { href: '/about', label: 'About' },
-    { href: '/pricing', label: 'Pricing' },
-    { href: '/contact', label: 'Contact' },
-  ];
+export const Navbar = () => {
+  const pathname = usePathname();
+  const router = useRouter();
+  const hydrated = useHydrated();
+  const { isAuthenticated, logout } = useAuthStore();
+  const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const authed = hydrated && isAuthenticated;
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Close the mobile menu whenever the route changes
+  const [prevPath, setPrevPath] = useState(pathname);
+  if (prevPath !== pathname) {
+    setPrevPath(pathname);
+    setOpen(false);
+  }
+
+  const handleLogout = () => {
+    logout();
+    router.push('/');
+  };
 
   return (
-    <motion.nav
-      initial={{ y: -100 }}
-      animate={{ y: 0 }}
+    <header
       className={cn(
-        'fixed top-0 left-0 right-0 z-50 border-b backdrop-blur-xl',
-        darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-slate-200'
+        'fixed inset-x-0 top-0 z-50 transition-[background-color,border-color,box-shadow] duration-200',
+        scrolled || open
+          ? 'border-b border-border bg-background/80 shadow-sm shadow-slate-900/[0.03] backdrop-blur-xl'
+          : 'border-b border-transparent'
       )}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <Link href="/" className="flex items-center">
-            <img src="/logo.png" alt="Am Able Logo" className="w-16 h-16" />
-          </Link>
+      <nav className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8" aria-label="Main">
+        <Link href="/" aria-label="Am Able home" className="rounded-lg">
+          <Logo />
+        </Link>
 
-          <div className="hidden md:flex items-center space-x-8">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="text-slate-700 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400 transition-colors font-medium"
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
+        <ul className="hidden items-center gap-1 md:flex">
+          {navLinks.map((link) => {
+            const active = pathname === link.href;
+            return (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  aria-current={active ? 'page' : undefined}
+                  className={cn(
+                    'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                    active ? 'text-foreground' : 'text-muted hover:text-foreground'
+                  )}
+                >
+                  {link.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
 
-          <div className="hidden md:flex items-center space-x-4">
-            {isAuthenticated ? (
-              <>
-                <Link href="/dashboard">
-                  <Button variant="ghost" size="sm">
-                    <User className="w-4 h-4 mr-2" />
-                    Dashboard
-                  </Button>
-                </Link>
-                <Button variant="outline" size="sm" onClick={logout}>
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Logout
-                </Button>
-              </>
-            ) : (
-              <>
-                <Link href="/login">
-                  <Button variant="ghost" size="sm">Login</Button>
-                </Link>
-                <Link href="/register">
-                  <Button size="sm">Get Started</Button>
-                </Link>
-              </>
-            )}
-          </div>
+        <div className="hidden items-center gap-2 md:flex">
+          <ThemeToggle />
+          {authed ? (
+            <>
+              <Button variant="ghost" size="sm" onClick={handleLogout}>
+                Sign out
+              </Button>
+              <Button href="/dashboard" size="sm">
+                <LayoutDashboard />
+                Dashboard
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button href="/login" variant="ghost" size="sm">
+                Sign in
+              </Button>
+              <Button href="/register" size="sm">
+                Get started
+              </Button>
+            </>
+          )}
+        </div>
 
+        <div className="flex items-center gap-1 md:hidden">
+          <ThemeToggle />
           <button
-            className="md:hidden p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Toggle menu"
+            className="inline-flex size-10 items-center justify-center rounded-lg text-foreground hover:bg-surface-muted"
+            onClick={() => setOpen((v) => !v)}
+            aria-label={open ? 'Close menu' : 'Open menu'}
+            aria-expanded={open}
+            aria-controls="mobile-menu"
           >
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            {open ? <X className="size-5" /> : <Menu className="size-5" />}
           </button>
         </div>
-      </div>
+      </nav>
 
-      {mobileMenuOpen && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          exit={{ opacity: 0, height: 0 }}
-          className={cn(
-            'md:hidden border-t',
-            darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
-          )}
-        >
-          <div className="px-4 py-4 space-y-4">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="block text-slate-700 hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-400 transition-colors font-medium"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                {link.label}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            id="mobile-menu"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden border-t border-border md:hidden"
+          >
+            <div className="space-y-1 px-4 py-4">
+              <Link href="/" className="block rounded-lg px-3 py-2.5 text-base font-medium text-foreground hover:bg-surface-muted">
+                Home
               </Link>
-            ))}
-            {isAuthenticated ? (
-              <>
-                <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)}>
-                  <Button variant="ghost" size="sm" className="w-full">
-                    <User className="w-4 h-4 mr-2" />
-                    Dashboard
-                  </Button>
+              {navLinks.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  aria-current={pathname === link.href ? 'page' : undefined}
+                  className="block rounded-lg px-3 py-2.5 text-base font-medium text-foreground hover:bg-surface-muted aria-[current=page]:bg-surface-muted"
+                >
+                  {link.label}
                 </Link>
-                <Button variant="outline" size="sm" className="w-full" onClick={logout}>
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Logout
-                </Button>
-              </>
-            ) : (
-              <>
-                <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
-                  <Button variant="ghost" size="sm" className="w-full">Login</Button>
-                </Link>
-                <Link href="/register" onClick={() => setMobileMenuOpen(false)}>
-                  <Button size="sm" className="w-full">Get Started</Button>
-                </Link>
-              </>
-            )}
-          </div>
-        </motion.div>
-      )}
-    </motion.nav>
+              ))}
+              <div className="grid grid-cols-2 gap-2 pt-3">
+                {authed ? (
+                  <>
+                    <Button variant="outline" onClick={handleLogout}>
+                      <LogOut />
+                      Sign out
+                    </Button>
+                    <Button href="/dashboard">Dashboard</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button href="/login" variant="outline">
+                      Sign in
+                    </Button>
+                    <Button href="/register">Get started</Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </header>
   );
 };

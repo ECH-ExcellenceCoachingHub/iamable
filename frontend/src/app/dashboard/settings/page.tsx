@@ -1,239 +1,226 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import { User, Bell, Moon, Sun, Shield, LogOut, Save, Camera } from 'lucide-react';
+import { Accessibility, KeyRound, LogOut, Mail, Palette, Save, User } from 'lucide-react';
+import { PageHeader } from '@/components/layout/app-shell';
+import { Avatar } from '@/components/layout/app-header';
+import { ThemeSelector } from '@/components/layout/theme-toggle';
+import { AccessibilityOptions } from '@/components/accessibility/accessibility-toolbar';
+import { PasswordInput } from '@/components/auth/password-input';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/store/auth-store';
-import { useUIStore } from '@/store/ui-store';
+import { useAccessibilityStore, type AccessibilityPreferences } from '@/store/accessibility-store';
+import { toast } from '@/store/toast-store';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/utils';
+
+function ProfileCard() {
+  const { user, updateUser } = useAuthStore();
+  const [name, setName] = useState(user?.name ?? '');
+  const [saving, setSaving] = useState(false);
+  const dirty = name.trim() !== (user?.name ?? '') && name.trim().length > 0;
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!dirty) return;
+    setSaving(true);
+    try {
+      // The API only accepts name/profileImage/password here; email is read-only
+      await api.users.updateProfile({ name: name.trim() });
+      updateUser({ name: name.trim() });
+      toast.success('Profile updated');
+    } catch (err) {
+      toast.error('Could not update profile', getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <form onSubmit={handleSave}>
+        <CardHeader>
+          <CardTitle>
+            <User className="size-4 text-subtle" />
+            Profile
+          </CardTitle>
+          <CardDescription>Your personal information.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex items-center gap-4">
+            <Avatar name={name || user?.name} className="size-14 text-lg" />
+            <div className="min-w-0">
+              <p className="truncate font-semibold text-foreground">{user?.name}</p>
+              <p className="truncate text-sm text-muted">{user?.email}</p>
+            </div>
+            <Badge tone={user?.role === 'admin' ? 'violet' : 'neutral'} className="ml-auto">
+              {user?.role ?? 'user'}
+            </Badge>
+          </div>
+          <Input label="Full name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required />
+          <Input
+            label="Email address"
+            value={user?.email ?? ''}
+            icon={<Mail />}
+            disabled
+            hint="Contact support if you need to change your email address."
+          />
+        </CardContent>
+        <CardFooter className="justify-end">
+          <Button type="submit" disabled={!dirty} isLoading={saving}>
+            {!saving && <Save />}
+            Save changes
+          </Button>
+        </CardFooter>
+      </form>
+    </Card>
+  );
+}
+
+function PasswordCard() {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [saving, setSaving] = useState(false);
+  const mismatch = confirm.length > 0 && password !== confirm;
+  const tooShort = password.length > 0 && password.length < 6;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (tooShort || mismatch || !password) return;
+    setSaving(true);
+    try {
+      await api.users.updateProfile({ password });
+      setPassword('');
+      setConfirm('');
+      toast.success('Password updated');
+    } catch (err) {
+      toast.error('Could not update password', getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <form onSubmit={handleSubmit}>
+        <CardHeader>
+          <CardTitle>
+            <KeyRound className="size-4 text-subtle" />
+            Password
+          </CardTitle>
+          <CardDescription>Use at least 6 characters.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <PasswordInput
+            label="New password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            error={tooShort ? 'Password must be at least 6 characters.' : undefined}
+          />
+          <PasswordInput
+            label="Confirm new password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            autoComplete="new-password"
+            error={mismatch ? "Passwords don't match." : undefined}
+          />
+        </CardContent>
+        <CardFooter className="justify-end">
+          <Button type="submit" disabled={!password || !confirm || mismatch || tooShort} isLoading={saving}>
+            Update password
+          </Button>
+        </CardFooter>
+      </form>
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user, isAuthenticated, updateUser, logout } = useAuthStore();
-  const { darkMode, toggleDarkMode } = useUIStore();
-  const [isHydrated, setIsHydrated] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    profileImage: '',
-  });
+  const logout = useAuthStore((s) => s.logout);
+  const resetPreferences = useAccessibilityStore((s) => s.resetPreferences);
 
-  useEffect(() => {
-    setIsHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isHydrated) return;
-    if (!isAuthenticated) {
-      router.push('/login');
-    } else if (user) {
-      setFormData({
-        name: user.name || '',
-        email: user.email || '',
-        profileImage: user.profileImage || '',
-      });
-    }
-  }, [isAuthenticated, router, isHydrated, user]);
-
-  if (!isHydrated) {
-    return null;
-  }
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      await api.users.updateProfile(formData);
-      updateUser(formData);
-      alert('Settings saved successfully!');
-    } catch (error) {
-      console.error('Error saving settings:', error);
-      alert('Failed to save settings');
-    } finally {
-      setIsSaving(false);
-    }
+  const syncAccessibility = (prefs: AccessibilityPreferences) => {
+    // Stored locally first; syncing to the account is best-effort
+    api.users.updateAccessibility({ ...prefs }).catch(() => {});
   };
 
   const handleLogout = () => {
     logout();
-    router.push('/login');
+    router.replace('/login');
   };
 
   return (
-    <div className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
-          Settings
-        </h1>
-        <p className="text-slate-600 dark:text-slate-300">
-          Manage your account and preferences
-        </p>
-      </motion.div>
+    <>
+      <PageHeader title="Settings" description="Manage your account, appearance and accessibility preferences." />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Profile Settings */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="space-y-6">
+          <ProfileCard />
+          <PasswordCard />
+        </div>
+
+        <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="w-5 h-5" />
-                Profile Settings
+              <CardTitle>
+                <Palette className="size-4 text-subtle" />
+                Appearance
               </CardTitle>
+              <CardDescription>Choose how Am Able looks on this device.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-teal-500 flex items-center justify-center text-white text-2xl font-bold">
-                  {formData.name.charAt(0).toUpperCase()}
-                </div>
-                <Button variant="outline" size="sm">
-                  <Camera className="w-4 h-4 mr-2" />
-                  Change Photo
-                </Button>
-              </div>
+            <CardContent>
+              <ThemeSelector />
+            </CardContent>
+          </Card>
 
+          <Card>
+            <CardHeader className="flex-row items-start justify-between gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Full Name
-                </label>
-                <Input
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Enter your name"
-                />
+                <CardTitle>
+                  <Accessibility className="size-4 text-subtle" />
+                  Accessibility
+                </CardTitle>
+                <CardDescription className="mt-1">Changes apply instantly across the app.</CardDescription>
               </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  resetPreferences();
+                  syncAccessibility(useAccessibilityStore.getState().preferences);
+                }}
+              >
+                Reset
+              </Button>
+            </CardHeader>
+            <CardContent className="px-3 sm:px-3">
+              <AccessibilityOptions onChange={syncAccessibility} />
+            </CardContent>
+          </Card>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Email Address
-                </label>
-                <Input
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="Enter your email"
-                  type="email"
-                />
-              </div>
-
-              <Button onClick={handleSave} disabled={isSaving} className="w-full">
-                <Save className="w-4 h-4 mr-2" />
-                {isSaving ? 'Saving...' : 'Save Changes'}
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                <LogOut className="size-4 text-subtle" />
+                Session
+              </CardTitle>
+              <CardDescription>Sign out of Am Able on this device.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" onClick={handleLogout} className="text-red-600 hover:text-red-700 dark:text-red-400">
+                <LogOut />
+                Sign out
               </Button>
             </CardContent>
           </Card>
-        </motion.div>
-
-        {/* App Preferences */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Moon className="w-5 h-5" />
-                App Preferences
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                <div className="flex items-center gap-3">
-                  {darkMode ? <Moon className="w-5 h-5 text-slate-600 dark:text-slate-400" /> : <Sun className="w-5 h-5 text-slate-600 dark:text-slate-400" />}
-                  <div>
-                    <p className="font-medium text-slate-900 dark:text-white">Dark Mode</p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      {darkMode ? 'Dark theme enabled' : 'Light theme enabled'}
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  onClick={toggleDarkMode}
-                  variant="outline"
-                  size="sm"
-                >
-                  {darkMode ? 'Disable' : 'Enable'}
-                </Button>
-              </div>
-
-              <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                <div className="flex items-center gap-3">
-                  <Bell className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-                  <div>
-                    <p className="font-medium text-slate-900 dark:text-white">Notifications</p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      Manage notification preferences
-                    </p>
-                  </div>
-                </div>
-                <Button variant="outline" size="sm">
-                  Configure
-                </Button>
-              </div>
-
-              <div className="flex items-center justify-between p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50">
-                <div className="flex items-center gap-3">
-                  <Shield className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-                  <div>
-                    <p className="font-medium text-slate-900 dark:text-white">Privacy</p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      Manage your privacy settings
-                    </p>
-                  </div>
-                </div>
-                <Button variant="outline" size="sm">
-                  Configure
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Account Actions */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="lg:col-span-2"
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Shield className="w-5 h-5" />
-                Account Actions
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Button
-                  onClick={handleLogout}
-                  variant="outline"
-                  className="flex-1 border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-900/20"
-                >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Sign Out
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1 border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-900/20"
-                >
-                  Delete Account
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
