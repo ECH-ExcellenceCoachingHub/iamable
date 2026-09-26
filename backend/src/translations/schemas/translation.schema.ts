@@ -25,6 +25,13 @@ export class Translation {
 
   @Prop({ default: false })
   isSaved: boolean;
+
+  /**
+   * True for translations recorded automatically as the user translates. Older translations
+   * lack it: back then a translation was only stored when the user pressed Save.
+   */
+  @Prop()
+  autoRecorded?: boolean;
 }
 
 export const TranslationSchema = SchemaFactory.createForClass(Translation);

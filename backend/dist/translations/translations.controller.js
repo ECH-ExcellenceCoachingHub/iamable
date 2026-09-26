@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const translations_service_1 = require("./translations.service");
 const jwt_auth_guard_1 = require("../auth/guards/jwt-auth.guard");
 const create_translation_dto_1 = require("./dto/create-translation.dto");
+const update_translation_dto_1 = require("./dto/update-translation.dto");
 let TranslationsController = class TranslationsController {
     translationsService;
     constructor(translationsService) {
@@ -39,6 +40,9 @@ let TranslationsController = class TranslationsController {
     }
     async findOne(id, req) {
         return this.translationsService.findOne(id, req.user.id);
+    }
+    async update(id, req, updateTranslationDto) {
+        return this.translationsService.update(id, req.user.id, updateTranslationDto);
     }
     async saveItem(id, req, notes) {
         return this.translationsService.saveItem(req.user.id, id, notes);
@@ -96,6 +100,15 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", Promise)
 ], TranslationsController.prototype, "findOne", null);
+__decorate([
+    (0, common_1.Patch)(':id'),
+    __param(0, (0, common_1.Param)('id')),
+    __param(1, (0, common_1.Request)()),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, update_translation_dto_1.UpdateTranslationDto]),
+    __metadata("design:returntype", Promise)
+], TranslationsController.prototype, "update", null);
 __decorate([
     (0, common_1.Post)(':id/save'),
     __param(0, (0, common_1.Param)('id')),

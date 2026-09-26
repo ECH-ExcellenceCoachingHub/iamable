@@ -10,7 +10,7 @@ import { Alert } from '@/components/ui/feedback';
 import { SignPlayer } from '@/components/sign/sign-player';
 import { SPEECH_LANGUAGES, speak, useSpeechRecognition } from '@/lib/speech';
 import { useSignEngine } from '@/lib/use-sign-engine';
-import { api } from '@/lib/api';
+import { useTranslationRecorder, type TranslationDraft } from '@/lib/use-translation-recorder';
 import { toast } from '@/store/toast-store';
 import { cn, getErrorMessage } from '@/lib/utils';
 
@@ -79,17 +79,27 @@ export default function VoiceToSignPage() {
 
   const toggle = () => (speech.listening ? speech.stop() : speech.start());
 
+  const transcript = speech.transcript.trim();
+  const draft = useMemo<TranslationDraft | null>(
+    () =>
+      transcript && engine
+        ? {
+            inputType: 'voice-to-sign',
+            inputContent: transcript,
+            translatedText: `Signed (${engine.describeFrames(frames)}): ${transcript}`,
+            confidenceScore: 1,
+          }
+        : null,
+    [transcript, engine, frames]
+  );
+  const recorder = useTranslationRecorder(draft);
+
   const handleSave = async () => {
-    if (!speech.transcript.trim()) return;
+    if (!transcript) return;
     setSaving(true);
     try {
-      await api.translations.create({
-        inputType: 'voice-to-sign',
-        inputContent: speech.transcript.trim(),
-        translatedText: `Signed (${engine?.describeFrames(frames)}): ${speech.transcript.trim()}`,
-        confidenceScore: 1,
-      });
-      toast.success('Translation saved', 'You can find it in your recent translations.');
+      await recorder.save();
+      toast.success('Translation saved', 'You can find it in Saved translations.');
     } catch (err) {
       toast.error('Could not save translation', getErrorMessage(err));
     } finally {

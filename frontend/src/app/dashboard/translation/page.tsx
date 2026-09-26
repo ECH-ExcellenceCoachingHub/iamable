@@ -28,6 +28,7 @@ import { Input, Select } from '@/components/ui/input';
 import { Alert, Progress } from '@/components/ui/feedback';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
+import { useTranslationRecorder, type TranslationDraft } from '@/lib/use-translation-recorder';
 import { toast } from '@/store/toast-store';
 import { cn, getErrorMessage } from '@/lib/utils';
 import { SPEECH_LANGUAGES, speak, useSpeechRecognition } from '@/lib/speech';
@@ -36,29 +37,19 @@ import { useSignEngine } from '@/lib/use-sign-engine';
 import { SignPlayer } from '@/components/sign/sign-player';
 import { recogniseLetter, sampleVector, STATIC_LETTERS, type Point3 } from '@/lib/fingerspelling';
 import { useFingerspellStore } from '@/store/fingerspell-store';
+import { drawBody, loadPoseModel, silenceMediaPipeLogs, TASKS_VISION_WASM, toObservation, type Landmark } from '@/lib/hand-tracking';
+import { frameFeatures, handsInClip, MotionWindow } from '@/lib/body-features';
+import { classifySign, REST_LABEL, useActiveSignModel } from '@/lib/sign-model';
 
-const TASKS_VISION_VERSION = '0.10.35';
 const MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task';
-/**
- * MediaPipe's WASM runtime writes routine status lines ("INFO: Created TensorFlow Lite XNNPACK
- * delegate for CPU.", glog "I0923 …"/"W0923 …" lines) to console.error, which the Next.js dev
- * overlay reports as errors. Drop just those lines; everything else still reaches console.error.
- */
-const MEDIAPIPE_LOG = /^(INFO:|WARNING: .*(tflite|mediapipe)|[IW]\d{4} \d{2}:\d{2}:\d{2})/i;
-let mediaPipeLogsSilenced = false;
-function silenceMediaPipeLogs() {
-  if (mediaPipeLogsSilenced) return;
-  mediaPipeLogsSilenced = true;
-  const original = console.error;
-  console.error = (...args: unknown[]) => {
-    if (typeof args[0] === 'string' && MEDIAPIPE_LOG.test(args[0])) return;
-    original(...args);
-  };
-}
-if (typeof window !== 'undefined') silenceMediaPipeLogs();
+silenceMediaPipeLogs();
 
 const MIN_SCORE = 0.65;
+/** A trained model always names one of its signs, so only trust it when it's clearly sure. */
+const CUSTOM_MIN_PROBABILITY = 0.85;
+/** Share of the clip's frames that must show a hand before a trained sign is considered. */
+const MIN_HANDS_IN_CLIP = 0.5;
 const BUFFER_SIZE = 4;
 const STABLE_FRAMES = 3;
 /** Letters change quickly and look alike mid-transition, so they must hold longer. */
@@ -70,47 +61,8 @@ const WORD_BREAK_MS = 1000;
 const SAMPLES_PER_RECORDING = 20;
 const SAMPLE_EVERY_N_FRAMES = 3;
 
-// Bone connections between MediaPipe's 21 hand landmarks
-const HAND_CONNECTIONS: [number, number][] = [
-  [0, 1], [1, 2], [2, 3], [3, 4],
-  [0, 5], [5, 6], [6, 7], [7, 8],
-  [5, 9], [9, 10], [10, 11], [11, 12],
-  [9, 13], [13, 14], [14, 15], [15, 16],
-  [13, 17], [17, 18], [18, 19], [19, 20], [0, 17],
-];
-
 type ModelStatus = 'loading' | 'ready' | 'error';
 type Mode = 'gestures' | 'letters';
-type Landmark = { x: number; y: number };
-
-function drawHand(canvas: HTMLCanvasElement, video: HTMLVideoElement, landmarks: Landmark[] | null) {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-  }
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!landmarks) return;
-  const w = canvas.width;
-  const h = canvas.height;
-  const scale = Math.max(1, w / 640);
-  ctx.lineWidth = 3 * scale;
-  ctx.strokeStyle = 'rgba(89, 154, 255, 0.9)';
-  ctx.lineCap = 'round';
-  for (const [a, b] of HAND_CONNECTIONS) {
-    ctx.beginPath();
-    ctx.moveTo(landmarks[a].x * w, landmarks[a].y * h);
-    ctx.lineTo(landmarks[b].x * w, landmarks[b].y * h);
-    ctx.stroke();
-  }
-  ctx.fillStyle = '#3aea80';
-  for (const p of landmarks) {
-    ctx.beginPath();
-    ctx.arc(p.x * w, p.y * h, 4 * scale, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
 
 export default function SignToTextPage() {
   const studioRef = useRef<HTMLDivElement>(null);
@@ -120,6 +72,31 @@ export default function SignToTextPage() {
   const animFrameRef = useRef<number | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognizerRef = useRef<any>(null);
+  // Signs trained on the admin AI Training page, deployed to everyone
+  const customModel = useActiveSignModel();
+  const customModelRef = useRef(customModel);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const poseRef = useRef<any>(null);
+  useEffect(() => {
+    customModelRef.current = customModel;
+  }, [customModel]);
+
+  // Trained signs use the whole upper body, so track the pose too, but only when such a model is deployed
+  useEffect(() => {
+    if (!customModel) return;
+    let cancelled = false;
+    loadPoseModel()
+      .then((pose) => {
+        if (cancelled) pose.close();
+        else poseRef.current = pose;
+      })
+      .catch((err) => console.error('Failed to load pose model:', err));
+    return () => {
+      cancelled = true;
+      poseRef.current?.close?.();
+      poseRef.current = null;
+    };
+  }, [customModel]);
   const lastSignRef = useRef('');
   const autoSpeakRef = useRef(true);
   const modeRef = useRef<Mode>('gestures');
@@ -189,13 +166,12 @@ export default function SignToTextPage() {
     (async () => {
       try {
         const { GestureRecognizer, FilesetResolver } = await import('@mediapipe/tasks-vision');
-        const fileset = await FilesetResolver.forVisionTasks(
-          `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${TASKS_VISION_VERSION}/wasm`
-        );
+        const fileset = await FilesetResolver.forVisionTasks(TASKS_VISION_WASM);
         const recognizer = await GestureRecognizer.createFromOptions(fileset, {
           baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
           runningMode: 'VIDEO',
-          numHands: 1,
+          // Two hands: trained signs may use both. Built-in gestures and letters read the raised hand.
+          numHands: 2,
           minHandDetectionConfidence: 0.5,
           minHandPresenceConfidence: 0.5,
           minTrackingConfidence: 0.5,
@@ -242,6 +218,7 @@ export default function SignToTextPage() {
     let lastHandVisible = false;
     let frame = 0;
     let handGoneSince = 0;
+    const motion = new MotionWindow();
 
     const loop = () => {
       const video = videoRef.current;
@@ -254,9 +231,15 @@ export default function SignToTextPage() {
         try {
           const now = performance.now();
           const results = recognizer.recognizeForVideo(video, now);
-          const landmarks: Landmark[] | null = results?.landmarks?.[0] ?? null;
-          const world: Point3[] | null = results?.worldLandmarks?.[0] ?? null;
-          if (canvas) drawHand(canvas, video, landmarks);
+          const allHands: Landmark[][] = results?.landmarks ?? [];
+          // With two hands in view, the raised one (wrist highest in the frame) is the one signing
+          const main = allHands.reduce((best, hand, i) => (hand[0].y < allHands[best][0].y ? i : best), 0);
+          const landmarks: Landmark[] | null = allHands[main] ?? null;
+          const world: Point3[] | null = results?.worldLandmarks?.[main] ?? null;
+          const custom = customModelRef.current;
+          const pose: Point3[] | null = custom && poseRef.current ? (poseRef.current.detectForVideo(video, now)?.landmarks?.[0] ?? null) : null;
+          if (custom) motion.push(now, frameFeatures(toObservation(video, pose, results?.landmarks ?? [], results?.worldLandmarks ?? [])));
+          if (canvas) drawBody(canvas, video, pose, allHands);
           frame++;
 
           const visible = !!landmarks;
@@ -278,6 +261,7 @@ export default function SignToTextPage() {
           const letters = modeRef.current === 'letters';
           let label = '';
           let score = 0;
+          let source = 'built-in';
           if (letters) {
             const guess = world && !rec ? recogniseLetter(world, useFingerspellStore.getState().samples) : null;
             if (guess) {
@@ -288,8 +272,19 @@ export default function SignToTextPage() {
             else if (!handGoneSince) handGoneSince = now;
             else if (now - handGoneSince > WORD_BREAK_MS) endWord();
           } else {
-            const top = results?.gestures?.[0]?.[0];
-            if (top && top.categoryName !== 'None' && top.score > MIN_SCORE) {
+            // Trained signs need a hand in view now and in most of the last second
+            const clip = custom && visible ? motion.vector(now) : null;
+            const result = custom && clip && handsInClip(clip) >= MIN_HANDS_IN_CLIP ? classifySign(custom, clip) : null;
+            // `sign` is null when the movement looks like nothing the model was taught
+            const trained = result?.sign && result.sign.probability >= CUSTOM_MIN_PROBABILITY ? result.sign : null;
+            const top = results?.gestures?.[main]?.[0];
+            if (trained?.label === REST_LABEL) {
+              // The model is sure the person isn't signing
+            } else if (trained) {
+              label = trained.label;
+              score = trained.probability;
+              source = custom!.modelVersion;
+            } else if (top && top.categoryName !== 'None' && top.score > MIN_SCORE) {
               label = GESTURE_LABELS[top.categoryName] || top.categoryName;
               score = top.score;
             }
@@ -314,6 +309,16 @@ export default function SignToTextPage() {
                 } else {
                   setSequence((s) => [...s, label]);
                   if (autoSpeakRef.current) speak(label.split(' (')[0], { lang: 'rw' });
+                  // Feeds the AI Performance dashboard; failures don't matter to the user
+                  api.ai
+                    .logPrediction({
+                      gesture: label,
+                      confidence: score,
+                      processingTime: Math.round(performance.now() - now),
+                      modelVersion: source,
+                      source: 'sign-to-text',
+                    })
+                    .catch(() => {});
                 }
               }
             }
@@ -381,18 +386,26 @@ export default function SignToTextPage() {
     setRecording(next);
   };
 
+  const draft = useMemo<TranslationDraft | null>(
+    () =>
+      outputText
+        ? {
+            inputType: 'sign-to-text',
+            inputContent: mode === 'letters' ? 'Fingerspelling' : 'Hand gesture',
+            translatedText: outputText,
+            confidenceScore: Math.round(confidence * 100) / 100,
+          }
+        : null,
+    [outputText, mode, confidence]
+  );
+  const recorder = useTranslationRecorder(draft);
+
   const handleSave = async () => {
-    const text = outputText;
-    if (!text) return;
+    if (!outputText) return;
     setSaving(true);
     try {
-      await api.translations.create({
-        inputType: 'sign-to-text',
-        inputContent: mode === 'letters' ? 'Fingerspelling' : 'Hand gesture',
-        translatedText: text,
-        confidenceScore: confidence,
-      });
-      toast.success('Translation saved', 'You can find it in your recent translations.');
+      await recorder.save();
+      toast.success('Translation saved', 'You can find it in Saved translations.');
     } catch (err) {
       toast.error('Could not save translation', getErrorMessage(err));
     } finally {
@@ -421,7 +434,7 @@ export default function SignToTextPage() {
   return (
     <>
       <PageHeader
-        title="Sign to Text"
+        title="Sign to Text & Voice"
         description="Sign in front of your camera and see your signs translated into text and speech."
         actions={
           <Button variant="outline" onClick={toggleFullscreen}>
@@ -793,6 +806,12 @@ export default function SignToTextPage() {
             <CardDescription>Signs the studio currently recognises.</CardDescription>
           </CardHeader>
           <CardContent>
+            {customModel && (
+              <div className="mb-4 rounded-xl bg-brand-50 px-3 py-2.5 text-sm dark:bg-brand-500/10">
+                <p className="font-medium text-brand-800 dark:text-brand-200">Also trained on {customModel.labels.filter((l) => l !== REST_LABEL).length} more signs, using your whole upper body</p>
+                <p className="mt-0.5 text-brand-700/80 dark:text-brand-300/80">{customModel.labels.filter((l) => l !== REST_LABEL).join(' · ')}</p>
+              </div>
+            )}
             <ul className="divide-y divide-border">
               {GESTURE_GUIDE.map((g) => (
                 <li key={g.gesture} className="flex items-center gap-3 py-2.5">

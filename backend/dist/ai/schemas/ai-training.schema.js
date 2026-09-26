@@ -21,12 +21,28 @@ let AITraining = class AITraining {
     epochs;
     batchSize;
     learningRate;
+    hiddenUnits;
+    validationSplit;
+    autoDeploy;
+    currentEpoch;
+    history;
     accuracy;
+    valAccuracy;
     loss;
+    valLoss;
+    bestEpoch;
+    labels;
+    skippedLabels;
     trainingTime;
+    startedAt;
+    finishedAt;
     errorMessage;
     trainedBy;
     modelMetrics;
+    model;
+    noveltyCheck;
+    isActive;
+    deployedAt;
 };
 exports.AITraining = AITraining;
 __decorate([
@@ -38,7 +54,11 @@ __decorate([
     __metadata("design:type", String)
 ], AITraining.prototype, "modelVersion", void 0);
 __decorate([
-    (0, mongoose_1.Prop)({ required: true, enum: ['pending', 'training', 'completed', 'failed'], default: 'pending' }),
+    (0, mongoose_1.Prop)({
+        required: true,
+        enum: ['pending', 'training', 'completed', 'failed'],
+        default: 'pending',
+    }),
     __metadata("design:type", String)
 ], AITraining.prototype, "status", void 0);
 __decorate([
@@ -62,9 +82,33 @@ __decorate([
     __metadata("design:type", Number)
 ], AITraining.prototype, "learningRate", void 0);
 __decorate([
+    (0, mongoose_1.Prop)({ default: 64 }),
+    __metadata("design:type", Number)
+], AITraining.prototype, "hiddenUnits", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: 0.2 }),
+    __metadata("design:type", Number)
+], AITraining.prototype, "validationSplit", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: true }),
+    __metadata("design:type", Boolean)
+], AITraining.prototype, "autoDeploy", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: 0 }),
+    __metadata("design:type", Number)
+], AITraining.prototype, "currentEpoch", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [Object], default: [] }),
+    __metadata("design:type", Array)
+], AITraining.prototype, "history", void 0);
+__decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", Number)
 ], AITraining.prototype, "accuracy", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", Number)
+], AITraining.prototype, "valAccuracy", void 0);
 __decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", Number)
@@ -72,7 +116,31 @@ __decorate([
 __decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", Number)
+], AITraining.prototype, "valLoss", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", Number)
+], AITraining.prototype, "bestEpoch", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [String], default: [] }),
+    __metadata("design:type", Array)
+], AITraining.prototype, "labels", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: [String], default: [] }),
+    __metadata("design:type", Array)
+], AITraining.prototype, "skippedLabels", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", Number)
 ], AITraining.prototype, "trainingTime", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", Date)
+], AITraining.prototype, "startedAt", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", Date)
+], AITraining.prototype, "finishedAt", void 0);
 __decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", String)
@@ -85,6 +153,22 @@ __decorate([
     (0, mongoose_1.Prop)({ type: Object }),
     __metadata("design:type", Object)
 ], AITraining.prototype, "modelMetrics", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: Object, select: false }),
+    __metadata("design:type", Object)
+], AITraining.prototype, "model", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: false }),
+    __metadata("design:type", Boolean)
+], AITraining.prototype, "noveltyCheck", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: false, index: true }),
+    __metadata("design:type", Boolean)
+], AITraining.prototype, "isActive", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", Date)
+], AITraining.prototype, "deployedAt", void 0);
 exports.AITraining = AITraining = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
 ], AITraining);

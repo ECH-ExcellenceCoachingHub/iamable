@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import {
   Activity,
   Bell,
+  Bookmark,
   BrainCircuit,
   ChevronsLeft,
   ChevronsRight,
@@ -36,9 +37,10 @@ const sections: { title: string; items: NavItem[]; adminOnly?: boolean }[] = [
     title: 'Translate',
     items: [
       { href: '/dashboard', label: 'Overview', icon: <LayoutGrid /> },
-      { href: '/dashboard/translation', label: 'Sign to Text', icon: <Hand /> },
+      { href: '/dashboard/translation', label: 'Sign to Text & Voice', icon: <Hand /> },
       { href: '/dashboard/voice', label: 'Voice to Sign', icon: <Mic /> },
       { href: '/dashboard/text-to-sign', label: 'Text to Sign', icon: <Type /> },
+      { href: '/dashboard/saved', label: 'Saved Translations', icon: <Bookmark /> },
     ],
   },
   {

@@ -13,9 +13,10 @@ import { cn, getInitials } from '@/lib/utils';
 
 const titles: Record<string, string> = {
   '/dashboard': 'Overview',
-  '/dashboard/translation': 'Sign to Text',
+  '/dashboard/translation': 'Sign to Text & Voice',
   '/dashboard/voice': 'Voice to Sign',
   '/dashboard/text-to-sign': 'Text to Sign',
+  '/dashboard/saved': 'Saved Translations',
   '/dashboard/learn': 'Learn Sign Language',
   '/dashboard/notifications': 'Notifications',
   '/dashboard/settings': 'Settings',

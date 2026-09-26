@@ -19,14 +19,21 @@ class CreateTrainingDto {
     epochs;
     batchSize;
     learningRate;
+    hiddenUnits;
+    validationSplit;
+    autoDeploy;
 }
 exports.CreateTrainingDto = CreateTrainingDto;
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(120),
     __metadata("design:type", String)
 ], CreateTrainingDto.prototype, "trainingName", void 0);
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(40),
     __metadata("design:type", String)
 ], CreateTrainingDto.prototype, "modelVersion", void 0);
 __decorate([
@@ -41,16 +48,41 @@ __decorate([
 ], CreateTrainingDto.prototype, "datasetSize", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(1000),
     __metadata("design:type", Number)
 ], CreateTrainingDto.prototype, "epochs", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(1),
+    (0, class_validator_1.Max)(1024),
     __metadata("design:type", Number)
 ], CreateTrainingDto.prototype, "batchSize", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0.00001),
+    (0, class_validator_1.Max)(1),
     __metadata("design:type", Number)
 ], CreateTrainingDto.prototype, "learningRate", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    (0, class_validator_1.Min)(8),
+    (0, class_validator_1.Max)(256),
+    __metadata("design:type", Number)
+], CreateTrainingDto.prototype, "hiddenUnits", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0.05),
+    (0, class_validator_1.Max)(0.5),
+    __metadata("design:type", Number)
+], CreateTrainingDto.prototype, "validationSplit", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], CreateTrainingDto.prototype, "autoDeploy", void 0);

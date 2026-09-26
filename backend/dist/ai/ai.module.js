@@ -13,6 +13,7 @@ const ai_controller_1 = require("./ai.controller");
 const ai_service_1 = require("./ai.service");
 const ai_log_schema_1 = require("./schemas/ai-log.schema");
 const ai_training_schema_1 = require("./schemas/ai-training.schema");
+const training_sample_schema_1 = require("./schemas/training-sample.schema");
 let AiModule = class AiModule {
 };
 exports.AiModule = AiModule;
@@ -22,6 +23,7 @@ exports.AiModule = AiModule = __decorate([
             mongoose_1.MongooseModule.forFeature([
                 { name: ai_log_schema_1.AILog.name, schema: ai_log_schema_1.AILogSchema },
                 { name: ai_training_schema_1.AITraining.name, schema: ai_training_schema_1.AITrainingSchema },
+                { name: training_sample_schema_1.TrainingSample.name, schema: training_sample_schema_1.TrainingSampleSchema },
             ]),
         ],
         controllers: [ai_controller_1.AiController],

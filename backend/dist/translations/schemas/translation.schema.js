@@ -20,6 +20,7 @@ let Translation = class Translation {
     confidenceScore;
     gestureData;
     isSaved;
+    autoRecorded;
 };
 exports.Translation = Translation;
 __decorate([
@@ -50,6 +51,10 @@ __decorate([
     (0, mongoose_1.Prop)({ default: false }),
     __metadata("design:type", Boolean)
 ], Translation.prototype, "isSaved", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", Boolean)
+], Translation.prototype, "autoRecorded", void 0);
 exports.Translation = Translation = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
 ], Translation);

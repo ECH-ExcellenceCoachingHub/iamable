@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var TranslationsService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TranslationsService = void 0;
 const common_1 = require("@nestjs/common");
@@ -19,19 +20,41 @@ const mongoose_2 = require("mongoose");
 const translation_schema_1 = require("./schemas/translation.schema");
 const translation_history_schema_1 = require("./schemas/translation-history.schema");
 const saved_item_schema_1 = require("./schemas/saved-item.schema");
-let TranslationsService = class TranslationsService {
+let TranslationsService = TranslationsService_1 = class TranslationsService {
     translationModel;
     historyModel;
     savedItemModel;
+    logger = new common_1.Logger(TranslationsService_1.name);
     constructor(translationModel, historyModel, savedItemModel) {
         this.translationModel = translationModel;
         this.historyModel = historyModel;
         this.savedItemModel = savedItemModel;
     }
+    async onModuleInit() {
+        await this.saveLegacyTranslations().catch((err) => this.logger.error('Could not mark older translations as saved', err));
+    }
+    async saveLegacyTranslations() {
+        const legacy = await this.translationModel
+            .find({ autoRecorded: { $exists: false } })
+            .select('_id userId createdAt')
+            .lean();
+        if (legacy.length === 0)
+            return;
+        await this.savedItemModel.bulkWrite(legacy.map((t) => ({
+            updateOne: {
+                filter: { userId: t.userId, translationId: t._id },
+                update: { $setOnInsert: { userId: t.userId, translationId: t._id, savedAt: t.createdAt ?? new Date() } },
+                upsert: true,
+            },
+        })));
+        await this.translationModel.updateMany({ _id: { $in: legacy.map((t) => t._id) } }, { $set: { isSaved: true, autoRecorded: false } });
+        this.logger.log(`Marked ${legacy.length} older translation(s) as saved`);
+    }
     async create(userId, createTranslationDto) {
         const translation = await this.translationModel.create({
             userId: new mongoose_2.Types.ObjectId(userId),
             ...createTranslationDto,
+            autoRecorded: true,
         });
         await this.historyModel.create({
             userId: new mongoose_2.Types.ObjectId(userId),
@@ -55,6 +78,15 @@ let TranslationsService = class TranslationsService {
         }
         return translation;
     }
+    async update(id, userId, dto) {
+        const { inputContent, translatedText, confidenceScore } = dto;
+        const changes = Object.fromEntries(Object.entries({ inputContent, translatedText, confidenceScore }).filter(([, value]) => value !== undefined));
+        const translation = await this.translationModel.findOneAndUpdate({ _id: id, userId: new mongoose_2.Types.ObjectId(userId) }, { $set: changes }, { new: true });
+        if (!translation) {
+            throw new common_1.NotFoundException('Translation not found');
+        }
+        return translation;
+    }
     async getHistory(userId, limit = 20) {
         return this.historyModel
             .find({ userId: new mongoose_2.Types.ObjectId(userId) })
@@ -69,6 +101,7 @@ let TranslationsService = class TranslationsService {
             .sort({ savedAt: -1 });
     }
     async saveItem(userId, translationId, notes) {
+        await this.findOne(translationId, userId);
         const existing = await this.savedItemModel.findOne({
             userId: new mongoose_2.Types.ObjectId(userId),
             translationId: new mongoose_2.Types.ObjectId(translationId),
@@ -85,6 +118,7 @@ let TranslationsService = class TranslationsService {
         return savedItem;
     }
     async unsaveItem(userId, translationId) {
+        await this.findOne(translationId, userId);
         await this.savedItemModel.deleteOne({
             userId: new mongoose_2.Types.ObjectId(userId),
             translationId: new mongoose_2.Types.ObjectId(translationId),
@@ -123,7 +157,7 @@ let TranslationsService = class TranslationsService {
     }
 };
 exports.TranslationsService = TranslationsService;
-exports.TranslationsService = TranslationsService = __decorate([
+exports.TranslationsService = TranslationsService = TranslationsService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(translation_schema_1.Translation.name)),
     __param(1, (0, mongoose_1.InjectModel)(translation_history_schema_1.TranslationHistory.name)),

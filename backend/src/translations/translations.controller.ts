@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, Request, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request, Query } from '@nestjs/common';
 import { TranslationsService } from './translations.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateTranslationDto } from './dto/create-translation.dto';
+import { UpdateTranslationDto } from './dto/update-translation.dto';
 
 @Controller('translations')
 @UseGuards(JwtAuthGuard)
@@ -36,6 +37,11 @@ export class TranslationsController {
   @Get(':id')
   async findOne(@Param('id') id: string, @Request() req) {
     return this.translationsService.findOne(id, req.user.id);
+  }
+
+  @Patch(':id')
+  async update(@Param('id') id: string, @Request() req, @Body() updateTranslationDto: UpdateTranslationDto) {
+    return this.translationsService.update(id, req.user.id, updateTranslationDto);
   }
 
   @Post(':id/save')

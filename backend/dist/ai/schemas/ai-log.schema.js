@@ -11,6 +11,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AILogSchema = exports.AILog = void 0;
 const mongoose_1 = require("@nestjs/mongoose");
+const mongoose_2 = require("mongoose");
 let AILog = class AILog {
     modelVersion;
     predictionData;
@@ -18,6 +19,10 @@ let AILog = class AILog {
     processingTime;
     gestureRecognized;
     confidence;
+    source;
+    expected;
+    correct;
+    userId;
 };
 exports.AILog = AILog;
 __decorate([
@@ -44,6 +49,22 @@ __decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", Number)
 ], AILog.prototype, "confidence", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: 'api', index: true }),
+    __metadata("design:type", String)
+], AILog.prototype, "source", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", String)
+], AILog.prototype, "expected", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", Boolean)
+], AILog.prototype, "correct", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ type: mongoose_2.Types.ObjectId, ref: 'User' }),
+    __metadata("design:type", mongoose_2.Types.ObjectId)
+], AILog.prototype, "userId", void 0);
 exports.AILog = AILog = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
 ], AILog);

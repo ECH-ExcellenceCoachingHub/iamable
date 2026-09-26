@@ -136,6 +136,11 @@ export const api = {
     unsave: (id: string) => fetchAPI(`/translations/${id}/save`, {
       method: 'DELETE',
     }),
+    update: (id: string, data: { inputContent?: string; translatedText?: string; confidenceScore?: number }) =>
+      fetchAPI(`/translations/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
     delete: (id: string) => fetchAPI(`/translations/${id}`, {
       method: 'DELETE',
     }),
@@ -145,14 +150,49 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ gestureData }),
     }),
-    getLogs: (limit?: number) => fetchAPI(`/ai/logs${limit ? `?limit=${limit}` : ''}`),
+    getLogs: (limit?: number, source?: string) =>
+      fetchAPI(`/ai/logs?limit=${limit || 100}${source ? `&source=${encodeURIComponent(source)}` : ''}`),
+    logPrediction: (data: {
+      gesture: string;
+      confidence: number;
+      processingTime?: number;
+      modelVersion?: string;
+      source?: 'sign-to-text' | 'knowledge-check';
+      expected?: string;
+    }) => fetchAPI('/ai/logs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
     getStats: () => fetchAPI('/ai/stats'),
+    getActiveModel: () => fetchAPI('/ai/model/active'),
+    getDataset: () => fetchAPI('/ai/samples'),
+    addSamples: (label: string, vectors: number[][], recordingId?: string) => fetchAPI('/ai/samples', {
+      method: 'POST',
+      body: JSON.stringify({ label, vectors, recordingId }),
+    }),
+    deleteSign: (label: string) => fetchAPI(`/ai/samples/${encodeURIComponent(label)}`, {
+      method: 'DELETE',
+    }),
+    undoLatestSamples: (label: string, count: number) =>
+      fetchAPI(`/ai/samples/${encodeURIComponent(label)}/latest?count=${count}`, {
+        method: 'DELETE',
+      }),
     createTraining: (data: Record<string, unknown>) => fetchAPI('/ai/training', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
     getTrainingHistory: () => fetchAPI('/ai/training'),
     getTraining: (id: string) => fetchAPI(`/ai/training/${id}`),
+    getTrainingModel: (id: string) => fetchAPI(`/ai/training/${id}/model`),
+    deployTraining: (id: string) => fetchAPI(`/ai/training/${id}/deploy`, {
+      method: 'POST',
+    }),
+    undeployModel: () => fetchAPI('/ai/training/undeploy', {
+      method: 'POST',
+    }),
+    deleteTraining: (id: string) => fetchAPI(`/ai/training/${id}`, {
+      method: 'DELETE',
+    }),
     updateTrainingStatus: (id: string, status: string, accuracy?: number, loss?: number, errorMessage?: string) =>
       fetchAPI(`/ai/training/${id}/status`, {
         method: 'PUT',

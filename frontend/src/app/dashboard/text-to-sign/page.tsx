@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Hand, RotateCcw, Save, Type, Volume2 } from 'lucide-react';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
@@ -9,7 +10,7 @@ import { Textarea } from '@/components/ui/input';
 import { SignPlayer } from '@/components/sign/sign-player';
 import { useSignEngine } from '@/lib/use-sign-engine';
 import { speak } from '@/lib/speech';
-import { api } from '@/lib/api';
+import { useTranslationRecorder, type TranslationDraft } from '@/lib/use-translation-recorder';
 import { toast } from '@/store/toast-store';
 import { useDebouncedValue } from '@/lib/hooks';
 import { getErrorMessage } from '@/lib/utils';
@@ -17,24 +18,36 @@ import { getErrorMessage } from '@/lib/utils';
 const MAX_LENGTH = 200;
 const EXAMPLES = ['Hello, how are you?', 'Nice to meet you', 'I need a doctor', 'Muraho, amakuru?', 'Ndashaka amazi', 'Murakoze cyane'];
 
-export default function TextToSignPage() {
-  const [text, setText] = useState('');
+function TextToSignStudio() {
+  // Recent translations on the dashboard reopen here with ?text=
+  const initialText = useSearchParams().get('text') ?? '';
+  const [text, setText] = useState(initialText.slice(0, MAX_LENGTH));
   const [saving, setSaving] = useState(false);
   const debounced = useDebouncedValue(text, 250);
   const engine = useSignEngine();
   const frames = useMemo(() => engine?.textToSignFrames(debounced) ?? [], [engine, debounced]);
 
+  const toDraft = (message: string): TranslationDraft | null => {
+    const trimmed = message.trim();
+    if (!trimmed || !engine) return null;
+    return {
+      inputType: 'text-to-sign',
+      inputContent: trimmed,
+      translatedText: `Signed (${engine.describeFrames(engine.textToSignFrames(trimmed))}): ${trimmed}`,
+      confidenceScore: 1,
+    };
+  };
+  const draft = useMemo(() => toDraft(debounced), [engine, debounced]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A message reopened from the dashboard is already in history
+  const reopened = useMemo(() => toDraft(initialText), [engine]); // eslint-disable-line react-hooks/exhaustive-deps
+  const recorder = useTranslationRecorder(draft, reopened);
+
   const handleSave = async () => {
     if (!text.trim()) return;
     setSaving(true);
     try {
-      await api.translations.create({
-        inputType: 'text-to-sign',
-        inputContent: text.trim(),
-        translatedText: engine ? `Signed (${engine.describeFrames(engine.textToSignFrames(text))}): ${text.trim()}` : text.trim(),
-        confidenceScore: 1,
-      });
-      toast.success('Translation saved', 'You can find it in your recent translations.');
+      await recorder.save();
+      toast.success('Translation saved', 'You can find it in Saved translations.');
     } catch (err) {
       toast.error('Could not save translation', getErrorMessage(err));
     } finally {
@@ -124,5 +137,13 @@ export default function TextToSignPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+export default function TextToSignPage() {
+  return (
+    <Suspense>
+      <TextToSignStudio />
+    </Suspense>
   );
 }

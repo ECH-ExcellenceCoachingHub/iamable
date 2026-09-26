@@ -1,17 +1,16 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
-import { Activity, ArrowRight, ArrowUpRight, Bookmark, Clock, GraduationCap, Hand, History, Mic, Target, Type } from 'lucide-react';
+import { Activity, ArrowRight, ArrowUpRight, Bookmark, ChevronDown, GraduationCap, Hand, History, Mic, Target, Type } from 'lucide-react';
 import { useAuthStore } from '@/store/auth-store';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/layout/app-shell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatCard } from '@/components/ui/stat-card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { EmptyState, ErrorState, Skeleton } from '@/components/ui/feedback';
-import { formatRelativeTime } from '@/lib/utils';
+import { EmptyState, ErrorState } from '@/components/ui/feedback';
+import { TranslationList, TranslationListSkeleton, type Translation } from '@/components/translations/translation-list';
 import { useApi } from '@/lib/hooks';
 
 interface Stats {
@@ -20,19 +19,13 @@ interface Stats {
   avgConfidence: number;
 }
 
-interface Translation {
-  _id: string;
-  inputType: 'sign-to-text' | 'text-to-sign' | 'voice-to-sign';
-  inputContent: string;
-  translatedText: string;
-  confidenceScore: number;
-  createdAt: string;
-}
+/** Rows shown before "Show all". The API returns the latest 50. */
+const RECENT_COUNT = 6;
 
 const modes = [
   {
     icon: <Hand />,
-    title: 'Sign to Text',
+    title: 'Sign to Text & Voice',
     description: 'Use your camera to translate sign language into text and speech.',
     href: '/dashboard/translation',
     tone: 'from-brand-500 to-sky-500',
@@ -60,12 +53,6 @@ const modes = [
   },
 ];
 
-const typeMeta: Record<Translation['inputType'], { label: string; icon: React.ReactNode; tone: 'brand' | 'violet' | 'success' }> = {
-  'sign-to-text': { label: 'Sign to text', icon: <Hand />, tone: 'brand' },
-  'voice-to-sign': { label: 'Voice to sign', icon: <Mic />, tone: 'violet' },
-  'text-to-sign': { label: 'Text to sign', icon: <Type />, tone: 'success' },
-};
-
 function greeting() {
   const hour = new Date().getHours();
   if (hour < 12) return 'Good morning';
@@ -77,15 +64,25 @@ async function fetchDashboard() {
   const [stats, translations] = await Promise.all([api.translations.getStats(), api.translations.getAll()]);
   return {
     stats: stats as Stats,
-    recent: (Array.isArray(translations) ? translations.slice(0, 6) : []) as Translation[],
+    recent: (Array.isArray(translations) ? translations : []) as Translation[],
   };
 }
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user);
-  const { data, loading, error, reload: load } = useApi(fetchDashboard, 'Could not load your dashboard.');
+  const { data, loading, error, reload: load, mutate } = useApi(fetchDashboard, 'Could not load your dashboard.');
   const stats = data?.stats;
   const recent = data?.recent ?? [];
+  const [showAll, setShowAll] = useState(false);
+  const shown = showAll ? recent : recent.slice(0, RECENT_COUNT);
+
+  const handleSavedChange = (id: string, saved: boolean) =>
+    mutate((d) =>
+      d && {
+        stats: { ...d.stats, savedTranslations: Math.max(0, d.stats.savedTranslations + (saved ? 1 : -1)) },
+        recent: d.recent.map((t) => (t._id === id ? { ...t, isSaved: saved } : t)),
+      }
+    );
 
   return (
     <>
@@ -122,8 +119,26 @@ export default function DashboardPage() {
       ) : (
         <>
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <StatCard label="Translations" value={stats?.totalTranslations ?? 0} icon={<Activity />} loading={loading} />
-            <StatCard label="Saved" value={stats?.savedTranslations ?? 0} icon={<Bookmark />} tone="violet" loading={loading} />
+            <StatCard
+              label="Translations"
+              value={stats?.totalTranslations ?? 0}
+              icon={<Activity />}
+              loading={loading}
+              hint="Every translation you have made"
+            />
+            <StatCard
+              label="Saved"
+              value={stats?.savedTranslations ?? 0}
+              icon={<Bookmark />}
+              tone="violet"
+              loading={loading}
+              hint={
+                <Link href="/dashboard/saved" className="inline-flex items-center gap-1 font-medium text-brand-600 hover:underline dark:text-brand-400">
+                  View saved translations
+                  <ArrowRight className="size-3" />
+                </Link>
+              }
+            />
             <StatCard
               label="Avg. confidence"
               value={`${Math.round((stats?.avgConfidence ?? 0) * 100)}%`}
@@ -139,25 +154,27 @@ export default function DashboardPage() {
                 <History className="size-4 text-subtle" />
                 Recent translations
               </CardTitle>
+              <div className="flex items-center gap-1">
+                {recent.length > RECENT_COUNT && (
+                  <Button variant="ghost" size="sm" onClick={() => setShowAll(!showAll)} aria-expanded={showAll}>
+                    {showAll ? 'Show less' : `Show all (${recent.length})`}
+                    <ChevronDown className={showAll ? 'rotate-180' : undefined} />
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" href="/dashboard/saved">
+                  <Bookmark />
+                  Saved
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="pt-4 sm:pt-4">
               {loading ? (
-                <div className="space-y-3">
-                  {[0, 1, 2].map((i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <Skeleton className="size-9 rounded-lg" />
-                      <div className="flex-1 space-y-2">
-                        <Skeleton className="h-4 w-1/3" />
-                        <Skeleton className="h-3 w-1/5" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <TranslationListSkeleton />
               ) : recent.length === 0 ? (
                 <EmptyState
                   icon={<History />}
                   title="No translations yet"
-                  description="Translations you save will show up here."
+                  description="Translations you make will show up here."
                   action={
                     <Button href="/dashboard/translation" size="sm">
                       Start translating
@@ -167,34 +184,12 @@ export default function DashboardPage() {
                   className="py-8"
                 />
               ) : (
-                <ul className="-mx-2 divide-y divide-border">
-                  {recent.map((t) => {
-                    const meta = typeMeta[t.inputType] ?? typeMeta['sign-to-text'];
-                    const text = t.inputType === 'sign-to-text' ? t.translatedText : t.inputContent;
-                    return (
-                      <li key={t._id} className="flex items-center gap-3 px-2 py-3">
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-muted text-muted [&_svg]:size-4">
-                          {meta.icon}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-foreground">{text || '—'}</p>
-                          <p className="flex items-center gap-1 text-xs text-subtle">
-                            <Clock className="size-3" />
-                            {formatRelativeTime(t.createdAt)}
-                          </p>
-                        </div>
-                        <Badge tone={meta.tone} className="hidden sm:inline-flex">
-                          {meta.label}
-                        </Badge>
-                        {t.confidenceScore > 0 && (
-                          <span className="w-12 text-right text-sm font-medium tabular-nums text-muted">
-                            {Math.round(t.confidenceScore * 100)}%
-                          </span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
+                <TranslationList
+                  translations={shown}
+                  onSavedChange={handleSavedChange}
+                  // Averages change too, so reload the stats rather than adjusting them here
+                  onDeleted={load}
+                />
               )}
             </CardContent>
           </Card>

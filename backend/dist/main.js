@@ -11,10 +11,11 @@ const compression_1 = __importDefault(require("compression"));
 const app_module_1 = require("./app.module");
 async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
+    app.useBodyParser('json', { limit: '5mb' });
     app.use((0, helmet_1.default)());
     app.use((0, compression_1.default)());
     const allowedOrigins = process.env.FRONTEND_URL
-        ? process.env.FRONTEND_URL.split(',').map(origin => origin.trim())
+        ? process.env.FRONTEND_URL.split(',').map((origin) => origin.trim())
         : ['http://localhost:3000'];
     app.enableCors({
         origin: (origin, callback) => {

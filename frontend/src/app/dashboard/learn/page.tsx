@@ -10,6 +10,7 @@ import {
   HeartHandshake,
   Library,
   Lightbulb,
+  Maximize2,
   RotateCcw,
   Search,
   Shuffle,
@@ -24,7 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress, Skeleton } from '@/components/ui/feedback';
 import { Input } from '@/components/ui/input';
-import { SignImage, SignPlayer } from '@/components/sign/sign-player';
+import { SignImage, SignPlayer, SignZoom } from '@/components/sign/sign-player';
 import { useSignEngine } from '@/lib/use-sign-engine';
 import { useDebouncedValue, useHydrated } from '@/lib/hooks';
 import { speak } from '@/lib/speech';
@@ -73,9 +74,25 @@ function shuffle<T>(items: T[]): T[] {
 function WordSign({ gloss, className }: { gloss: string; className?: string }) {
   const engine = useSignEngine();
   const frame = useMemo(() => engine?.signForWord(gloss) ?? null, [engine, gloss]);
+  const [zoomed, setZoomed] = useState(false);
   return (
-    <div className={cn('aspect-square overflow-hidden rounded-xl ring-1 ring-border', className)}>
+    <div className={cn('relative aspect-square overflow-hidden rounded-xl ring-1 ring-border', className)}>
       {frame ? <SignImage key={gloss} frame={frame} size="lg" /> : <Skeleton className="size-full rounded-xl" />}
+      {frame && (
+        <>
+          <Button
+            variant="secondary"
+            size="icon-sm"
+            className="absolute right-2 top-2 shadow-md"
+            onClick={() => setZoomed(true)}
+            aria-label="Enlarge sign"
+            title="Enlarge"
+          >
+            <Maximize2 />
+          </Button>
+          <SignZoom frame={zoomed ? frame : null} onClose={() => setZoomed(false)} />
+        </>
+      )}
     </div>
   );
 }
@@ -178,7 +195,7 @@ function LessonsTab() {
           </h2>
           <p className="mt-1 text-sm text-muted">{lesson.description} Watch each sign a few times, copy it, then mark it as learned.</p>
         </div>
-        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {lesson.words.map((word) => (
             <WordCard key={word.en} word={word} />
           ))}
@@ -259,7 +276,7 @@ function DictionaryTab() {
           <p className="mt-1 text-sm text-muted">Try a simpler word, or learn to fingerspell it in the Alphabet tab.</p>
         </Card>
       ) : (
-        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {results.slice(0, limit).map((gloss) => (
             <WordCard key={gloss} word={withKinyarwanda(gloss)} />
           ))}
@@ -480,7 +497,7 @@ function QuizTab() {
           </span>
         </div>
         <p className="text-center font-semibold text-foreground">What does this sign mean?</p>
-        <WordSign gloss={question.answer.en} className="mx-auto w-full max-w-64" />
+        <WordSign gloss={question.answer.en} className="mx-auto w-full max-w-md" />
         <div className="grid grid-cols-2 gap-2">
           {question.options.map((option) => {
             const isAnswer = option.en === question.answer.en;

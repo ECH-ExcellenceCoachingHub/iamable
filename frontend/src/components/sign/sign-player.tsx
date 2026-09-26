@@ -2,10 +2,11 @@
 
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Grid3X3, Pause, Play, RotateCcw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Grid3X3, Maximize2, Pause, Play, RotateCcw } from 'lucide-react';
 import type { SignFrame } from '@/lib/sign-images';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/feedback';
+import { Modal } from '@/components/ui/modal';
 import { cn } from '@/lib/utils';
 
 const SPEEDS = [
@@ -84,6 +85,25 @@ export function SignImage({ frame, size }: { frame: SignFrame; size: 'sm' | 'lg'
   );
 }
 
+/** One sign shown large in a dialog, so it is easy to see and copy. */
+export function SignZoom({ frame, onClose }: { frame: SignFrame | null; onClose: () => void }) {
+  return (
+    <Modal
+      isOpen={!!frame && frame.kind !== 'space'}
+      onClose={onClose}
+      title={frame ? frameLabel(frame) : ''}
+      description={frame ? frameCaption(frame) : undefined}
+      size="xl"
+    >
+      {frame && (
+        <div className="mx-auto aspect-square w-full max-w-[min(100%,65dvh)]">
+          <SignImage frame={frame} size="lg" />
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 interface SignPlayerProps {
   frames: SignFrame[];
   emptyIcon: React.ReactNode;
@@ -96,6 +116,7 @@ export const SignPlayer = ({ frames, emptyIcon, emptyText }: SignPlayerProps) =>
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [zoomed, setZoomed] = useState<SignFrame | null>(null);
   const letters = frames.length;
   const safeIndex = Math.min(index, Math.max(0, letters - 1));
 
@@ -133,6 +154,7 @@ export const SignPlayer = ({ frames, emptyIcon, emptyText }: SignPlayerProps) =>
   }
 
   const current = frames[safeIndex];
+  const hasWords = frames.some((f) => f.kind === 'word');
 
   return (
     <div className="space-y-4">
@@ -181,7 +203,7 @@ export const SignPlayer = ({ frames, emptyIcon, emptyText }: SignPlayerProps) =>
 
       {mode === 'player' ? (
         <div className="rounded-xl bg-surface-muted p-5 ring-1 ring-inset ring-border">
-          <div className="mx-auto aspect-square w-full max-w-60">
+          <div className="relative mx-auto aspect-square w-full max-w-md">
             <AnimatePresence mode="wait">
               <motion.div
                 key={`${safeIndex}-${frameLabel(current)}`}
@@ -194,6 +216,21 @@ export const SignPlayer = ({ frames, emptyIcon, emptyText }: SignPlayerProps) =>
                 <SignImage frame={current} size="lg" />
               </motion.div>
             </AnimatePresence>
+            {current.kind !== 'space' && (
+              <Button
+                variant="secondary"
+                size="icon-sm"
+                className="absolute right-2 top-2 shadow-md"
+                onClick={() => {
+                  setPlaying(false);
+                  setZoomed(current);
+                }}
+                aria-label="Enlarge sign"
+                title="Enlarge"
+              >
+                <Maximize2 />
+              </Button>
+            )}
           </div>
           <p className="mt-4 text-center font-display text-3xl font-bold text-foreground" aria-live="polite">
             {current.kind === 'space' ? '␣' : frameLabel(current)}
@@ -242,37 +279,54 @@ export const SignPlayer = ({ frames, emptyIcon, emptyText }: SignPlayerProps) =>
           </div>
         </div>
       ) : (
-        <ul className="grid max-h-[26rem] grid-cols-4 gap-3 overflow-y-auto p-0.5 scrollbar-thin sm:grid-cols-6">
-          {frames.map((frame, i) => (
-            <li key={`${i}-${frameLabel(frame)}`}>
-              <button
-                onClick={() => {
-                  setIndex(i);
-                  setMode('player');
-                }}
-                className="group w-full text-center"
-                aria-label={frame.kind === 'space' ? 'Word break' : `Sign ${frameLabel(frame)}, open in player`}
-              >
-                <div
-                  className={cn(
-                    'aspect-square overflow-hidden rounded-xl shadow-sm transition-transform group-hover:scale-[1.04]',
-                    frame.kind === 'word' ? 'ring-2 ring-brand-500' : 'ring-1 ring-border'
-                  )}
+        <ul
+          className={cn(
+            'grid max-h-[40rem] gap-3 overflow-y-auto p-1 scrollbar-thin',
+            hasWords ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-4 sm:grid-cols-6'
+          )}
+        >
+          {frames.map((frame, i) => {
+            if (frame.kind === 'space') {
+              // Word signs are already separate tiles; only fingerspelled words need a break (a new row)
+              const betweenLetters = frames[i - 1]?.kind === 'letter' && frames[i + 1]?.kind === 'letter';
+              return betweenLetters ? <li key={`${i}-space`} className="col-span-full h-0" aria-hidden="true" /> : null;
+            }
+            return (
+              <li key={`${i}-${frameLabel(frame)}`}>
+                <button
+                  onClick={() => {
+                    setIndex(i);
+                    setMode('player');
+                  }}
+                  className="group w-full text-center"
+                  aria-label={`Sign ${frameLabel(frame)}, open in player`}
                 >
-                  <SignImage frame={frame} size="sm" />
-                </div>
-                <span
-                  className={cn('mt-1 block truncate text-xs font-medium', frame.kind === 'word' ? 'text-foreground' : 'text-muted')}
-                >
-                  {frameLabel(frame)}
-                </span>
-              </button>
-            </li>
-          ))}
+                  <div
+                    className={cn(
+                      'aspect-square overflow-hidden rounded-xl shadow-sm transition-transform group-hover:scale-[1.04]',
+                      frame.kind === 'word' ? 'ring-2 ring-brand-500' : 'ring-1 ring-border'
+                    )}
+                  >
+                    <SignImage frame={frame} size="sm" />
+                  </div>
+                  <span
+                    className={cn(
+                      'mt-1.5 block truncate font-medium',
+                      frame.kind === 'word' ? 'text-base text-foreground' : 'text-sm text-muted'
+                    )}
+                  >
+                    {frameLabel(frame)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      {frames.some((f) => f.kind === 'word') && (
+      <SignZoom frame={zoomed} onClose={() => setZoomed(null)} />
+
+      {hasWords && (
         <p className="text-[11px] leading-relaxed text-subtle">
           Signs are American Sign Language, from{' '}
           <a href="https://www.lifeprint.com" target="_blank" rel="noreferrer" className="underline hover:text-foreground">

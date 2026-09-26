@@ -24,7 +24,7 @@ export default function manifest(): MetadataRoute.Manifest {
     shortcuts: [
       { name: 'Text to Sign', url: '/dashboard/text-to-sign', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
       { name: 'Voice to Sign', url: '/dashboard/voice', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
-      { name: 'Sign to Text', url: '/dashboard/translation', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
+      { name: 'Sign to Text & Voice', url: '/dashboard/translation', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
     ],
   };
 }
