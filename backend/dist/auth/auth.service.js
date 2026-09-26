@@ -108,6 +108,12 @@ let AuthService = class AuthService {
         if (!isPasswordValid) {
             throw new common_1.UnauthorizedException('Invalid credentials');
         }
+        if (user.isActive === false) {
+            throw new common_1.ForbiddenException(user.suspendedReason
+                ? `Your account has been suspended: ${user.suspendedReason}`
+                : 'Your account has been suspended. Please contact support.');
+        }
+        await this.userModel.updateOne({ _id: user._id }, { lastLoginAt: new Date() });
         const tokens = await this.generateTokens(user._id.toString(), user.role);
         return {
             user: {
@@ -127,7 +133,7 @@ let AuthService = class AuthService {
                 secret: process.env.JWT_REFRESH_SECRET,
             });
             const user = await this.userModel.findById(payload.sub);
-            if (!user) {
+            if (!user || user.isActive === false) {
                 throw new common_1.UnauthorizedException('User not found');
             }
             const tokens = await this.generateTokens(user._id.toString(), user.role);
@@ -141,6 +147,9 @@ let AuthService = class AuthService {
         const user = await this.userModel.findById(userId);
         if (!user) {
             throw new common_1.UnauthorizedException('User not found');
+        }
+        if (user.isActive === false) {
+            throw new common_1.UnauthorizedException('Your account has been suspended');
         }
         return user;
     }

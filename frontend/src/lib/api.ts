@@ -80,6 +80,24 @@ export async function fetchAPI<T = any>(endpoint: string, options: RequestInit =
   return body as T;
 }
 
+export interface AdminUserFilters {
+  role?: 'user' | 'admin';
+  status?: 'active' | 'suspended';
+  verified?: 'verified' | 'unverified';
+  sortBy?: 'createdAt' | 'name' | 'email' | 'lastLoginAt';
+  sortOrder?: 'asc' | 'desc';
+}
+
+export type AdminBulkAction = 'activate' | 'suspend' | 'delete' | 'make-admin' | 'make-user' | 'verify';
+
+function buildUserQuery(params: Record<string, string | number | undefined>) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') query.set(key, String(value));
+  }
+  return query.toString();
+}
+
 export const api = {
   auth: {
     register: (data: { name: string; email: string; password: string }) => fetchAPI('/auth/register', {
@@ -211,13 +229,44 @@ export const api = {
         body: JSON.stringify({ status, adminResponse }),
       }),
     getStats: () => fetchAPI('/admin/stats'),
-    getAllUsers: (page?: number, limit?: number, search?: string) => 
-      fetchAPI(`/admin/users?page=${page || 1}&limit=${limit || 10}${search ? `&search=${encodeURIComponent(search)}` : ''}`),
+    getAllUsers: (page?: number, limit?: number, search?: string, filters: AdminUserFilters = {}) =>
+      fetchAPI(`/admin/users?${buildUserQuery({ page: page || 1, limit: limit || 10, search, ...filters })}`),
+    getUserStats: () => fetchAPI('/admin/users/stats'),
+    exportUsers: (search?: string, filters: AdminUserFilters = {}) =>
+      fetchAPI(`/admin/users/export?${buildUserQuery({ search, ...filters })}`),
     getUserById: (id: string) => fetchAPI(`/admin/users/${id}`),
+    createUser: (data: { name: string; email: string; password: string; role?: string; isEmailVerified?: boolean }) =>
+      fetchAPI('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    updateUser: (
+      id: string,
+      data: Partial<{ name: string; email: string; role: string; isEmailVerified: boolean; isActive: boolean; profileImage: string }>
+    ) =>
+      fetchAPI(`/admin/users/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
     updateUserRole: (id: string, role: string) => fetchAPI(`/admin/users/${id}/role`, {
       method: 'PUT',
       body: JSON.stringify({ role }),
     }),
+    updateUserStatus: (id: string, isActive: boolean, reason?: string) =>
+      fetchAPI(`/admin/users/${id}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ isActive, ...(reason ? { reason } : {}) }),
+      }),
+    resetUserPassword: (id: string, password: string) =>
+      fetchAPI(`/admin/users/${id}/password`, {
+        method: 'PUT',
+        body: JSON.stringify({ password }),
+      }),
+    bulkUserAction: (ids: string[], action: AdminBulkAction) =>
+      fetchAPI('/admin/users/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ ids, action }),
+      }),
     deleteUser: (id: string) => fetchAPI(`/admin/users/${id}`, {
       method: 'DELETE',
     }),

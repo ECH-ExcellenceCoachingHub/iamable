@@ -4,6 +4,15 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CreateReportDto } from './dto/create-report.dto';
+import {
+  AdminCreateUserDto,
+  AdminResetPasswordDto,
+  AdminUpdateUserDto,
+  BulkUserActionDto,
+  ListUsersQueryDto,
+  UpdateUserRoleDto,
+  UpdateUserStatusDto,
+} from './dto/manage-user.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard)
@@ -50,12 +59,36 @@ export class AdminController {
   @Get('users')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  async getAllUsers(
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10,
-    @Query('search') search?: string,
-  ) {
-    return this.adminService.getAllUsers(page, limit, search);
+  async getAllUsers(@Query() query: ListUsersQueryDto) {
+    return this.adminService.getAllUsers(query);
+  }
+
+  @Get('users/stats')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async getUserStats() {
+    return this.adminService.getUserStats();
+  }
+
+  @Get('users/export')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async exportUsers(@Query() query: ListUsersQueryDto) {
+    return this.adminService.exportUsers(query);
+  }
+
+  @Post('users')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async createUser(@Body() dto: AdminCreateUserDto) {
+    return this.adminService.createUser(dto);
+  }
+
+  @Post('users/bulk')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async bulkUserAction(@Request() req, @Body() dto: BulkUserActionDto) {
+    return this.adminService.bulkUserAction(req.user.id.toString(), dto);
   }
 
   @Get('users/:id')
@@ -65,17 +98,38 @@ export class AdminController {
     return this.adminService.getUserById(id);
   }
 
+  @Put('users/:id')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async updateUser(@Request() req, @Param('id') id: string, @Body() dto: AdminUpdateUserDto) {
+    return this.adminService.updateUser(req.user.id.toString(), id, dto);
+  }
+
   @Put('users/:id/role')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  async updateUserRole(@Param('id') id: string, @Body('role') role: string) {
-    return this.adminService.updateUserRole(id, role);
+  async updateUserRole(@Request() req, @Param('id') id: string, @Body() dto: UpdateUserRoleDto) {
+    return this.adminService.updateUserRole(req.user.id.toString(), id, dto.role);
+  }
+
+  @Put('users/:id/status')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async updateUserStatus(@Request() req, @Param('id') id: string, @Body() dto: UpdateUserStatusDto) {
+    return this.adminService.updateUserStatus(req.user.id.toString(), id, dto.isActive, dto.reason);
+  }
+
+  @Put('users/:id/password')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async resetUserPassword(@Param('id') id: string, @Body() dto: AdminResetPasswordDto) {
+    return this.adminService.resetUserPassword(id, dto.password);
   }
 
   @Delete('users/:id')
   @UseGuards(RolesGuard)
   @Roles('admin')
-  async deleteUser(@Param('id') id: string) {
-    return this.adminService.deleteUser(id);
+  async deleteUser(@Request() req, @Param('id') id: string) {
+    return this.adminService.deleteUser(req.user.id.toString(), id);
   }
 }

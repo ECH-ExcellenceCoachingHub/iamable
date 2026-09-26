@@ -19,6 +19,9 @@ let User = class User {
     profileImage;
     accessibilityPreferences;
     isEmailVerified;
+    isActive;
+    suspendedReason;
+    lastLoginAt;
     emailVerificationToken;
     resetPasswordToken;
     resetPasswordExpires;
@@ -67,6 +70,18 @@ __decorate([
     (0, mongoose_1.Prop)({ default: false }),
     __metadata("design:type", Boolean)
 ], User.prototype, "isEmailVerified", void 0);
+__decorate([
+    (0, mongoose_1.Prop)({ default: true }),
+    __metadata("design:type", Boolean)
+], User.prototype, "isActive", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", String)
+], User.prototype, "suspendedReason", void 0);
+__decorate([
+    (0, mongoose_1.Prop)(),
+    __metadata("design:type", Date)
+], User.prototype, "lastLoginAt", void 0);
 __decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", String)

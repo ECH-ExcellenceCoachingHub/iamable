@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
@@ -78,6 +79,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    if (user.isActive === false) {
+      throw new ForbiddenException(
+        user.suspendedReason
+          ? `Your account has been suspended: ${user.suspendedReason}`
+          : 'Your account has been suspended. Please contact support.',
+      );
+    }
+
+    await this.userModel.updateOne({ _id: user._id }, { lastLoginAt: new Date() });
+
     const tokens = await this.generateTokens(user._id.toString(), user.role);
 
     return {
@@ -100,7 +111,7 @@ export class AuthService {
       });
 
       const user = await this.userModel.findById(payload.sub);
-      if (!user) {
+      if (!user || user.isActive === false) {
         throw new UnauthorizedException('User not found');
       }
 
@@ -116,6 +127,10 @@ export class AuthService {
     const user = await this.userModel.findById(userId);
     if (!user) {
       throw new UnauthorizedException('User not found');
+    }
+    // Suspended accounts lose access immediately, even with an unexpired token
+    if (user.isActive === false) {
+      throw new UnauthorizedException('Your account has been suspended');
     }
     return user;
   }

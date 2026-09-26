@@ -1,11 +1,27 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { Connection, QueryFilter, Model, SortOrder, Types } from 'mongoose';
+import * as bcrypt from 'bcrypt';
 import { Report, ReportDocument } from './schemas/report.schema';
 import { SystemMetric, SystemMetricDocument } from './schemas/system-metric.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { CreateReportDto } from './dto/create-report.dto';
+import {
+  AdminCreateUserDto,
+  AdminUpdateUserDto,
+  BulkUserActionDto,
+  ListUsersQueryDto,
+  UserRole,
+} from './dto/manage-user.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+
+const SAFE_USER_FIELDS = '-password -emailVerificationToken -resetPasswordToken -resetPasswordExpires';
 
 @Injectable()
 export class AdminService {
@@ -13,6 +29,7 @@ export class AdminService {
     @InjectModel(Report.name) private reportModel: Model<ReportDocument>,
     @InjectModel(SystemMetric.name) private systemMetricModel: Model<SystemMetricDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectConnection() private connection: Connection,
     private notificationsService: NotificationsService,
   ) {}
 
@@ -138,44 +155,269 @@ export class AdminService {
     };
   }
 
-  async getAllUsers(page: number = 1, limit: number = 10, search?: string) {
-    // Escape user input so it is matched literally, not as a regular expression
-    const pattern = search?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const query = pattern ? { $or: [{ name: { $regex: pattern, $options: 'i' } }, { email: { $regex: pattern, $options: 'i' } }] } : {};
-    const skip = (page - 1) * limit;
+  // ---------------------------------------------------------------------------
+  // User management
+  // ---------------------------------------------------------------------------
 
-    const users = await this.userModel
-      .find(query)
-      .select('-password')
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 });
-    const total = await this.userModel.countDocuments(query);
-    
+  private buildUserQuery(filters: Pick<ListUsersQueryDto, 'search' | 'role' | 'status' | 'verified'>): QueryFilter<UserDocument> {
+    const query: QueryFilter<UserDocument> = {};
+    // Escape user input so it is matched literally, not as a regular expression
+    const pattern = filters.search?.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (pattern) {
+      query.$or = [{ name: { $regex: pattern, $options: 'i' } }, { email: { $regex: pattern, $options: 'i' } }];
+    }
+    if (filters.role) query.role = filters.role;
+    // Accounts created before `isActive` existed have no value and count as active
+    if (filters.status === 'active') query.isActive = { $ne: false };
+    if (filters.status === 'suspended') query.isActive = false;
+    if (filters.verified === 'verified') query.isEmailVerified = true;
+    if (filters.verified === 'unverified') query.isEmailVerified = { $ne: true };
+    return query;
+  }
+
+  async getAllUsers(params: ListUsersQueryDto) {
+    const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc' } = params;
+    const query = this.buildUserQuery(params);
+    const sort: Record<string, SortOrder> = { [sortBy]: sortOrder === 'asc' ? 1 : -1 };
+    if (sortBy !== 'createdAt') sort.createdAt = -1;
+
+    const [users, total] = await Promise.all([
+      this.userModel
+        .find(query)
+        .select(SAFE_USER_FIELDS)
+        .sort(sort)
+        .skip((page - 1) * limit)
+        .limit(limit),
+      this.userModel.countDocuments(query),
+    ]);
+
     return { users, total, page, limit };
   }
 
+  async exportUsers(params: ListUsersQueryDto) {
+    return this.userModel
+      .find(this.buildUserQuery(params))
+      .select('name email role isActive isEmailVerified lastLoginAt createdAt')
+      .sort({ createdAt: -1 })
+      .limit(10000)
+      .lean();
+  }
+
+  async getUserStats() {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [total, admins, suspended, verified, newLast30Days, activeLast30Days] = await Promise.all([
+      this.userModel.countDocuments(),
+      this.userModel.countDocuments({ role: 'admin' }),
+      this.userModel.countDocuments({ isActive: false }),
+      this.userModel.countDocuments({ isEmailVerified: true }),
+      this.userModel.countDocuments({ createdAt: { $gte: since } }),
+      this.userModel.countDocuments({ lastLoginAt: { $gte: since } }),
+    ]);
+    return { total, admins, suspended, verified, newLast30Days, activeLast30Days };
+  }
+
   async getUserById(id: string) {
-    const user = await this.userModel.findById(id).select('-password');
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('User not found');
+    const user = await this.userModel.findById(id).select(SAFE_USER_FIELDS).lean();
     if (!user) {
       throw new NotFoundException('User not found');
     }
-    return user;
+
+    const objectId = new Types.ObjectId(id);
+    const count = (modelName: string) => {
+      const model = this.connection.models[modelName];
+      return model ? model.countDocuments({ userId: objectId }).catch(() => 0) : Promise.resolve(0);
+    };
+    const [translations, savedItems, reports] = await Promise.all([
+      count('Translation'),
+      count('SavedItem'),
+      this.reportModel.countDocuments({ userId: objectId }),
+    ]);
+
+    return { ...user, activity: { translations, savedItems, reports } };
   }
 
-  async updateUserRole(id: string, role: string) {
-    const user = await this.userModel.findByIdAndUpdate(id, { role }, { new: true }).select('-password');
-    if (!user) {
-      throw new NotFoundException('User not found');
+  async createUser(dto: AdminCreateUserDto) {
+    const email = dto.email.trim().toLowerCase();
+    if (await this.userModel.exists({ email })) {
+      throw new ConflictException('A user with this email already exists');
     }
-    return user;
+
+    const user = await this.userModel.create({
+      name: dto.name.trim(),
+      email,
+      password: await bcrypt.hash(dto.password, 10),
+      role: dto.role ?? 'user',
+      isEmailVerified: dto.isEmailVerified ?? false,
+      isActive: true,
+    });
+
+    await this.notificationsService
+      .create({
+        userId: user._id.toString(),
+        title: `Welcome to Am Able, ${user.name.split(' ')[0]}!`,
+        message: 'An administrator created your account. You can update your profile and password in settings.',
+        type: 'info',
+        link: '/dashboard',
+      })
+      .catch(() => undefined);
+
+    return this.getUserById(user._id.toString());
   }
 
-  async deleteUser(id: string) {
-    const user = await this.userModel.findByIdAndDelete(id);
-    if (!user) {
-      throw new NotFoundException('User not found');
+  async updateUser(actorId: string, id: string, dto: AdminUpdateUserDto, suspendedReason?: string) {
+    const user = await this.findUserOrFail(id);
+    const isSelf = user._id.toString() === actorId;
+    const set: Record<string, unknown> = {};
+    const unset: Record<string, 1> = {};
+
+    if (dto.name !== undefined) set.name = dto.name.trim();
+
+    if (dto.email !== undefined) {
+      const email = dto.email.trim().toLowerCase();
+      if (email !== user.email) {
+        if (await this.userModel.exists({ email, _id: { $ne: user._id } })) {
+          throw new ConflictException('A user with this email already exists');
+        }
+        set.email = email;
+      }
     }
+
+    if (dto.role !== undefined && dto.role !== user.role) {
+      if (isSelf) throw new ForbiddenException("You can't change your own role");
+      if (user.role === 'admin') await this.assertNotLastAdmin();
+      set.role = dto.role;
+    }
+
+    const wasActive = user.isActive !== false;
+    if (dto.isActive !== undefined && dto.isActive !== wasActive) {
+      if (isSelf) throw new ForbiddenException("You can't suspend your own account");
+      if (!dto.isActive && user.role === 'admin') await this.assertNotLastAdmin();
+      set.isActive = dto.isActive;
+    }
+    if (dto.isActive === true) unset.suspendedReason = 1;
+    if (dto.isActive === false && suspendedReason?.trim()) set.suspendedReason = suspendedReason.trim();
+
+    if (dto.isEmailVerified !== undefined) set.isEmailVerified = dto.isEmailVerified;
+    if (dto.profileImage !== undefined) set.profileImage = dto.profileImage;
+
+    await this.userModel.updateOne({ _id: user._id }, { $set: set, $unset: unset }, { runValidators: true });
+
+    if (set.isActive === false) {
+      await this.notifyUser(user._id, 'Your account was suspended', suspendedReason?.trim() || 'Contact support for more information.', 'warning');
+    } else if (set.role) {
+      await this.notifyUser(user._id, 'Your role changed', `You are now ${set.role === 'admin' ? 'an admin' : 'a standard user'}.`, 'info');
+    }
+
+    return this.getUserById(id);
+  }
+
+  async updateUserRole(actorId: string, id: string, role: UserRole) {
+    return this.updateUser(actorId, id, { role });
+  }
+
+  async updateUserStatus(actorId: string, id: string, isActive: boolean, reason?: string) {
+    return this.updateUser(actorId, id, { isActive }, reason);
+  }
+
+  async resetUserPassword(id: string, password: string) {
+    const user = await this.findUserOrFail(id);
+    await this.userModel.updateOne(
+      { _id: user._id },
+      { $set: { password: await bcrypt.hash(password, 10) }, $unset: { resetPasswordToken: 1, resetPasswordExpires: 1 } },
+    );
+    await this.notifyUser(
+      user._id,
+      'Your password was reset',
+      'An administrator reset your password. If you did not expect this, contact support.',
+      'warning',
+    );
+    return { message: 'Password reset successfully' };
+  }
+
+  async deleteUser(actorId: string, id: string) {
+    const user = await this.findUserOrFail(id);
+    if (user._id.toString() === actorId) {
+      throw new ForbiddenException("You can't delete your own account");
+    }
+    if (user.role === 'admin') await this.assertNotLastAdmin();
+
+    await this.userModel.deleteOne({ _id: user._id });
+    await this.removeUserData(user._id);
     return { message: 'User deleted successfully' };
+  }
+
+  async bulkUserAction(actorId: string, dto: BulkUserActionDto) {
+    const ids = [...new Set(dto.ids)].filter((id) => id !== actorId);
+    if (ids.length === 0) {
+      throw new BadRequestException("You can't apply bulk actions to your own account");
+    }
+    const objectIds = ids.map((id) => new Types.ObjectId(id));
+    const scope = { _id: { $in: objectIds } };
+
+    // Actions that take admin rights away must leave at least one active admin behind
+    if (dto.action === 'delete' || dto.action === 'suspend' || dto.action === 'make-user') {
+      const remainingAdmins = await this.userModel.countDocuments({
+        role: 'admin',
+        isActive: { $ne: false },
+        _id: { $nin: objectIds },
+      });
+      if (remainingAdmins === 0) {
+        throw new BadRequestException('At least one active admin must remain');
+      }
+    }
+
+    let affected = 0;
+    switch (dto.action) {
+      case 'activate':
+        affected = (await this.userModel.updateMany(scope, { $set: { isActive: true }, $unset: { suspendedReason: 1 } })).modifiedCount;
+        break;
+      case 'suspend':
+        affected = (await this.userModel.updateMany(scope, { $set: { isActive: false } })).modifiedCount;
+        break;
+      case 'make-admin':
+        affected = (await this.userModel.updateMany(scope, { $set: { role: 'admin' } })).modifiedCount;
+        break;
+      case 'make-user':
+        affected = (await this.userModel.updateMany(scope, { $set: { role: 'user' } })).modifiedCount;
+        break;
+      case 'verify':
+        affected = (await this.userModel.updateMany(scope, { $set: { isEmailVerified: true } })).modifiedCount;
+        break;
+      case 'delete':
+        affected = (await this.userModel.deleteMany(scope)).deletedCount;
+        await Promise.all(objectIds.map((objectId) => this.removeUserData(objectId)));
+        break;
+    }
+
+    return { action: dto.action, affected, skippedSelf: ids.length !== dto.ids.length };
+  }
+
+  private async findUserOrFail(id: string) {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('User not found');
+    const user = await this.userModel.findById(id);
+    if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
+  private async assertNotLastAdmin() {
+    const activeAdmins = await this.userModel.countDocuments({ role: 'admin', isActive: { $ne: false } });
+    if (activeAdmins <= 1) {
+      throw new BadRequestException('At least one active admin must remain');
+    }
+  }
+
+  private async notifyUser(userId: Types.ObjectId, title: string, message: string, type: 'info' | 'warning') {
+    await this.notificationsService.create({ userId: userId.toString(), title, message, type }).catch(() => undefined);
+  }
+
+  /** Removes personal data owned by a deleted user. Reports and AI logs are kept for auditing. */
+  private async removeUserData(userId: Types.ObjectId) {
+    const byObjectId = ['Translation', 'TranslationHistory', 'SavedItem'];
+    const byString = ['Notification', 'PushSubscription'];
+    await Promise.all([
+      ...byObjectId.map((name) => this.connection.models[name]?.deleteMany({ userId }).catch(() => undefined)),
+      ...byString.map((name) => this.connection.models[name]?.deleteMany({ userId: userId.toString() }).catch(() => undefined)),
+    ]);
   }
 }

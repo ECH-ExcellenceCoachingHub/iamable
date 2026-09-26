@@ -47,6 +47,15 @@ export class User {
   @Prop({ default: false })
   isEmailVerified: boolean;
 
+  @Prop({ default: true })
+  isActive: boolean;
+
+  @Prop()
+  suspendedReason: string;
+
+  @Prop()
+  lastLoginAt: Date;
+
   @Prop()
   emailVerificationToken: string;
 
