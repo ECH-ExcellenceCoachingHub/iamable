@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { unsubscribeDevice } from '@/lib/push';
 
 export interface User {
   id: string;
@@ -35,6 +36,7 @@ export const useAuthStore = create<AuthState>()(
         set({ user, accessToken, refreshToken, isAuthenticated: true });
       },
       logout: () => {
+        unsubscribeDevice().catch(() => {});
         if (typeof window !== 'undefined') {
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');

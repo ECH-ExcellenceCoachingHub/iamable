@@ -52,12 +52,15 @@ const mongoose_1 = require("@nestjs/mongoose");
 const mongoose_2 = require("mongoose");
 const bcrypt = __importStar(require("bcrypt"));
 const user_schema_1 = require("../users/schemas/user.schema");
+const notifications_service_1 = require("../notifications/notifications.service");
 let AuthService = class AuthService {
     userModel;
     jwtService;
-    constructor(userModel, jwtService) {
+    notificationsService;
+    constructor(userModel, jwtService, notificationsService) {
         this.userModel = userModel;
         this.jwtService = jwtService;
+        this.notificationsService = notificationsService;
     }
     async register(registerDto) {
         const { name, email, password } = registerDto;
@@ -76,6 +79,15 @@ let AuthService = class AuthService {
         await this.userModel.findByIdAndUpdate(user._id, {
             emailVerificationToken: this.generateVerificationToken(),
         });
+        await this.notificationsService
+            .create({
+            userId: user._id.toString(),
+            title: `Welcome to Am Able, ${name.split(' ')[0]}!`,
+            message: 'Start translating sign language, or turn on push notifications so you never miss an update.',
+            type: 'info',
+            link: '/dashboard',
+        })
+            .catch(() => undefined);
         return {
             user: {
                 id: user._id,
@@ -179,5 +191,6 @@ exports.AuthService = AuthService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(user_schema_1.User.name)),
     __metadata("design:paramtypes", [mongoose_2.Model,
-        jwt_1.JwtService])
+        jwt_1.JwtService,
+        notifications_service_1.NotificationsService])
 ], AuthService);

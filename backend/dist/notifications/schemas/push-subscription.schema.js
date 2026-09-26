@@ -9,43 +9,32 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.NotificationSchema = exports.Notification = void 0;
+exports.PushSubscriptionSchema = exports.PushSubscription = void 0;
 const mongoose_1 = require("@nestjs/mongoose");
-let Notification = class Notification {
+let PushSubscription = class PushSubscription {
     userId;
-    title;
-    message;
-    type;
-    read;
-    link;
+    endpoint;
+    keys;
+    userAgent;
 };
-exports.Notification = Notification;
+exports.PushSubscription = PushSubscription;
 __decorate([
-    (0, mongoose_1.Prop)({ required: true }),
+    (0, mongoose_1.Prop)({ required: true, index: true }),
     __metadata("design:type", String)
-], Notification.prototype, "userId", void 0);
+], PushSubscription.prototype, "userId", void 0);
 __decorate([
-    (0, mongoose_1.Prop)({ required: true }),
+    (0, mongoose_1.Prop)({ required: true, unique: true }),
     __metadata("design:type", String)
-], Notification.prototype, "title", void 0);
+], PushSubscription.prototype, "endpoint", void 0);
 __decorate([
-    (0, mongoose_1.Prop)({ required: true }),
-    __metadata("design:type", String)
-], Notification.prototype, "message", void 0);
-__decorate([
-    (0, mongoose_1.Prop)({ required: true, enum: ['info', 'success', 'warning', 'error'] }),
-    __metadata("design:type", String)
-], Notification.prototype, "type", void 0);
-__decorate([
-    (0, mongoose_1.Prop)({ default: false }),
-    __metadata("design:type", Boolean)
-], Notification.prototype, "read", void 0);
+    (0, mongoose_1.Prop)({ type: { p256dh: String, auth: String }, required: true, _id: false }),
+    __metadata("design:type", Object)
+], PushSubscription.prototype, "keys", void 0);
 __decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", String)
-], Notification.prototype, "link", void 0);
-exports.Notification = Notification = __decorate([
+], PushSubscription.prototype, "userAgent", void 0);
+exports.PushSubscription = PushSubscription = __decorate([
     (0, mongoose_1.Schema)({ timestamps: true })
-], Notification);
-exports.NotificationSchema = mongoose_1.SchemaFactory.createForClass(Notification);
-exports.NotificationSchema.index({ userId: 1, createdAt: -1 });
+], PushSubscription);
+exports.PushSubscriptionSchema = mongoose_1.SchemaFactory.createForClass(PushSubscription);

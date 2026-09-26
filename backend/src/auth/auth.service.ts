@@ -10,6 +10,7 @@ import { Model } from 'mongoose';
 import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { RegisterDto } from './dto/register.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 import { LoginDto } from './dto/login.dto';
 
 @Injectable()
@@ -17,6 +18,7 @@ export class AuthService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private jwtService: JwtService,
+    private notificationsService: NotificationsService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -41,6 +43,16 @@ export class AuthService {
     await this.userModel.findByIdAndUpdate(user._id, {
       emailVerificationToken: this.generateVerificationToken(),
     });
+
+    await this.notificationsService
+      .create({
+        userId: user._id.toString(),
+        title: `Welcome to Am Able, ${name.split(' ')[0]}!`,
+        message: 'Start translating sign language, or turn on push notifications so you never miss an update.',
+        type: 'info',
+        link: '/dashboard',
+      })
+      .catch(() => undefined);
 
     return {
       user: {

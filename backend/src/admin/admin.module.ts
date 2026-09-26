@@ -6,6 +6,7 @@ import { AdminService } from './admin.service';
 import { Report, ReportSchema } from './schemas/report.schema';
 import { SystemMetric, SystemMetricSchema } from './schemas/system-metric.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { User, UserSchema } from '../users/schemas/user.schema';
       { name: SystemMetric.name, schema: SystemMetricSchema },
       { name: User.name, schema: UserSchema },
     ]),
+    NotificationsModule,
   ],
   controllers: [AdminController, SystemMetricsController],
   providers: [AdminService],

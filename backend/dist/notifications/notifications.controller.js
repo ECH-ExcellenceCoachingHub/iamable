@@ -15,11 +15,18 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.NotificationsController = void 0;
 const common_1 = require("@nestjs/common");
 const notifications_service_1 = require("./notifications.service");
+const push_service_1 = require("./push.service");
 const jwt_auth_guard_1 = require("../auth/guards/jwt-auth.guard");
+const roles_guard_1 = require("../auth/guards/roles.guard");
+const roles_decorator_1 = require("../auth/decorators/roles.decorator");
+const create_notification_dto_1 = require("./dto/create-notification.dto");
+const push_subscription_dto_1 = require("./dto/push-subscription.dto");
 let NotificationsController = class NotificationsController {
     notificationsService;
-    constructor(notificationsService) {
+    pushService;
+    constructor(notificationsService, pushService) {
         this.notificationsService = notificationsService;
+        this.pushService = pushService;
     }
     async findAll(req) {
         return this.notificationsService.findAll(req.user.id);
@@ -33,6 +40,32 @@ let NotificationsController = class NotificationsController {
     }
     async create(createNotificationDto) {
         return this.notificationsService.create(createNotificationDto);
+    }
+    getPushPublicKey() {
+        return { publicKey: this.pushService.getPublicKey(), enabled: this.pushService.enabled };
+    }
+    async subscribe(req, dto, userAgent) {
+        if (!this.pushService.enabled) {
+            throw new common_1.ServiceUnavailableException('Push notifications are not configured on the server.');
+        }
+        return this.pushService.subscribe(req.user.id, dto, userAgent);
+    }
+    async unsubscribe(req, dto) {
+        return this.pushService.unsubscribe(req.user.id, dto.endpoint);
+    }
+    async sendTest(req) {
+        if (!this.pushService.enabled) {
+            throw new common_1.ServiceUnavailableException('Push notifications are not configured on the server.');
+        }
+        const devices = await this.pushService.countForUser(req.user.id);
+        await this.notificationsService.create({
+            userId: String(req.user.id),
+            title: 'Test notification',
+            message: 'Push notifications are working on this device.',
+            type: 'success',
+            link: '/dashboard/notifications',
+        });
+        return { devices };
     }
     async markAsRead(id, req) {
         return this.notificationsService.markAsRead(id, req.user.id);
@@ -71,11 +104,43 @@ __decorate([
 ], NotificationsController.prototype, "getUnreadCount", null);
 __decorate([
     (0, common_1.Post)(),
+    (0, common_1.UseGuards)(roles_guard_1.RolesGuard),
+    (0, roles_decorator_1.Roles)('admin'),
     __param(0, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [create_notification_dto_1.CreateNotificationDto]),
+    __metadata("design:returntype", Promise)
+], NotificationsController.prototype, "create", null);
+__decorate([
+    (0, common_1.Get)('push/public-key'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], NotificationsController.prototype, "getPushPublicKey", null);
+__decorate([
+    (0, common_1.Post)('push/subscribe'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, common_1.Headers)('user-agent')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, push_subscription_dto_1.PushSubscriptionDto, String]),
+    __metadata("design:returntype", Promise)
+], NotificationsController.prototype, "subscribe", null);
+__decorate([
+    (0, common_1.Post)('push/unsubscribe'),
+    __param(0, (0, common_1.Request)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, push_subscription_dto_1.UnsubscribeDto]),
+    __metadata("design:returntype", Promise)
+], NotificationsController.prototype, "unsubscribe", null);
+__decorate([
+    (0, common_1.Post)('push/test'),
+    __param(0, (0, common_1.Request)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
-], NotificationsController.prototype, "create", null);
+], NotificationsController.prototype, "sendTest", null);
 __decorate([
     (0, common_1.Put)(':id/read'),
     __param(0, (0, common_1.Param)('id')),
@@ -109,5 +174,6 @@ __decorate([
 exports.NotificationsController = NotificationsController = __decorate([
     (0, common_1.Controller)('notifications'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
-    __metadata("design:paramtypes", [notifications_service_1.NotificationsService])
+    __metadata("design:paramtypes", [notifications_service_1.NotificationsService,
+        push_service_1.PushService])
 ], NotificationsController);

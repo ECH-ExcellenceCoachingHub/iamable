@@ -11,20 +11,40 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
+var NotificationsService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.NotificationsService = void 0;
 const common_1 = require("@nestjs/common");
 const mongoose_1 = require("@nestjs/mongoose");
 const mongoose_2 = require("mongoose");
 const notification_schema_1 = require("./schemas/notification.schema");
-let NotificationsService = class NotificationsService {
+const push_service_1 = require("./push.service");
+let NotificationsService = NotificationsService_1 = class NotificationsService {
     notificationModel;
-    constructor(notificationModel) {
+    pushService;
+    logger = new common_1.Logger(NotificationsService_1.name);
+    constructor(notificationModel, pushService) {
         this.notificationModel = notificationModel;
+        this.pushService = pushService;
     }
     async create(createNotificationDto) {
-        const notification = new this.notificationModel(createNotificationDto);
-        return notification.save();
+        const notification = await new this.notificationModel({
+            ...createNotificationDto,
+            userId: String(createNotificationDto.userId),
+        }).save();
+        this.push(notification).catch((err) => this.logger.warn(`Could not push notification ${notification._id}: ${err.message}`));
+        return notification;
+    }
+    async push(notification) {
+        const badgeCount = await this.getUnreadCount(notification.userId);
+        await this.pushService.sendToUser(notification.userId, {
+            title: notification.title,
+            body: notification.message,
+            type: notification.type,
+            url: notification.link || '/dashboard/notifications',
+            tag: String(notification._id),
+            badgeCount,
+        });
     }
     async findAll(userId) {
         return this.notificationModel
@@ -39,6 +59,8 @@ let NotificationsService = class NotificationsService {
             .exec();
     }
     async markAsRead(id, userId) {
+        if (!(0, mongoose_2.isValidObjectId)(id))
+            throw new common_1.NotFoundException('Notification not found');
         const notification = await this.notificationModel.findOneAndUpdate({ _id: id, userId }, { read: true }, { new: true });
         if (!notification) {
             throw new common_1.NotFoundException('Notification not found');
@@ -49,6 +71,8 @@ let NotificationsService = class NotificationsService {
         return this.notificationModel.updateMany({ userId, read: false }, { read: true });
     }
     async remove(id, userId) {
+        if (!(0, mongoose_2.isValidObjectId)(id))
+            throw new common_1.NotFoundException('Notification not found');
         const notification = await this.notificationModel.findOneAndDelete({
             _id: id,
             userId,
@@ -67,8 +91,9 @@ let NotificationsService = class NotificationsService {
     }
 };
 exports.NotificationsService = NotificationsService;
-exports.NotificationsService = NotificationsService = __decorate([
+exports.NotificationsService = NotificationsService = NotificationsService_1 = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, mongoose_1.InjectModel)(notification_schema_1.Notification.name)),
-    __metadata("design:paramtypes", [mongoose_2.Model])
+    __metadata("design:paramtypes", [mongoose_2.Model,
+        push_service_1.PushService])
 ], NotificationsService);

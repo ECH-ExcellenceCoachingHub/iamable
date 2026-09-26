@@ -11,7 +11,9 @@ const common_1 = require("@nestjs/common");
 const mongoose_1 = require("@nestjs/mongoose");
 const notifications_service_1 = require("./notifications.service");
 const notifications_controller_1 = require("./notifications.controller");
+const push_service_1 = require("./push.service");
 const notification_schema_1 = require("./schemas/notification.schema");
+const push_subscription_schema_1 = require("./schemas/push-subscription.schema");
 let NotificationsModule = class NotificationsModule {
 };
 exports.NotificationsModule = NotificationsModule;
@@ -20,10 +22,11 @@ exports.NotificationsModule = NotificationsModule = __decorate([
         imports: [
             mongoose_1.MongooseModule.forFeature([
                 { name: notification_schema_1.Notification.name, schema: notification_schema_1.NotificationSchema },
+                { name: push_subscription_schema_1.PushSubscription.name, schema: push_subscription_schema_1.PushSubscriptionSchema },
             ]),
         ],
         controllers: [notifications_controller_1.NotificationsController],
-        providers: [notifications_service_1.NotificationsService],
+        providers: [notifications_service_1.NotificationsService, push_service_1.PushService],
         exports: [notifications_service_1.NotificationsService],
     })
 ], NotificationsModule);

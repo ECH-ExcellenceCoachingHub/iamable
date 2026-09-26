@@ -19,20 +19,34 @@ const mongoose_2 = require("mongoose");
 const report_schema_1 = require("./schemas/report.schema");
 const system_metric_schema_1 = require("./schemas/system-metric.schema");
 const user_schema_1 = require("../users/schemas/user.schema");
+const notifications_service_1 = require("../notifications/notifications.service");
 let AdminService = class AdminService {
     reportModel;
     systemMetricModel;
     userModel;
-    constructor(reportModel, systemMetricModel, userModel) {
+    notificationsService;
+    constructor(reportModel, systemMetricModel, userModel, notificationsService) {
         this.reportModel = reportModel;
         this.systemMetricModel = systemMetricModel;
         this.userModel = userModel;
+        this.notificationsService = notificationsService;
     }
     async createReport(userId, createReportDto) {
-        return this.reportModel.create({
+        const report = await this.reportModel.create({
             userId: new mongoose_2.Types.ObjectId(userId),
             ...createReportDto,
         });
+        const admins = await this.userModel.find({ role: 'admin' }, { _id: 1 }).lean();
+        await Promise.all(admins.map((admin) => this.notificationsService
+            .create({
+            userId: admin._id.toString(),
+            title: 'New report submitted',
+            message: `A new ${report.reportType.replace('-', ' ')} report is waiting for review.`,
+            type: 'warning',
+            link: '/admin/reports',
+        })
+            .catch(() => undefined)));
+        return report;
     }
     async findAll() {
         return this.reportModel.find().sort({ createdAt: -1 });
@@ -48,6 +62,18 @@ let AdminService = class AdminService {
         const report = await this.reportModel.findByIdAndUpdate(id, { status, adminResponse }, { new: true });
         if (!report) {
             throw new common_1.NotFoundException('Report not found');
+        }
+        if (report.userId) {
+            await this.notificationsService
+                .create({
+                userId: report.userId.toString(),
+                title: 'Your report was updated',
+                message: adminResponse
+                    ? `Status: ${status}. ${adminResponse}`
+                    : `Your ${report.reportType.replace('-', ' ')} report is now ${status}.`,
+                type: status === 'resolved' ? 'success' : 'info',
+            })
+                .catch(() => undefined);
         }
         return report;
     }
@@ -145,5 +171,6 @@ exports.AdminService = AdminService = __decorate([
     __param(2, (0, mongoose_1.InjectModel)(user_schema_1.User.name)),
     __metadata("design:paramtypes", [mongoose_2.Model,
         mongoose_2.Model,
-        mongoose_2.Model])
+        mongoose_2.Model,
+        notifications_service_1.NotificationsService])
 ], AdminService);

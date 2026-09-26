@@ -5,6 +5,7 @@ import { Report, ReportDocument } from './schemas/report.schema';
 import { SystemMetric, SystemMetricDocument } from './schemas/system-metric.schema';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { CreateReportDto } from './dto/create-report.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AdminService {
@@ -12,13 +13,30 @@ export class AdminService {
     @InjectModel(Report.name) private reportModel: Model<ReportDocument>,
     @InjectModel(SystemMetric.name) private systemMetricModel: Model<SystemMetricDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private notificationsService: NotificationsService,
   ) {}
 
   async createReport(userId: string, createReportDto: CreateReportDto) {
-    return this.reportModel.create({
+    const report = await this.reportModel.create({
       userId: new Types.ObjectId(userId),
       ...createReportDto,
     });
+
+    const admins = await this.userModel.find({ role: 'admin' }, { _id: 1 }).lean();
+    await Promise.all(
+      admins.map((admin) =>
+        this.notificationsService
+          .create({
+            userId: admin._id.toString(),
+            title: 'New report submitted',
+            message: `A new ${report.reportType.replace('-', ' ')} report is waiting for review.`,
+            type: 'warning',
+            link: '/admin/reports',
+          })
+          .catch(() => undefined),
+      ),
+    );
+    return report;
   }
 
   async findAll() {
@@ -42,6 +60,19 @@ export class AdminService {
 
     if (!report) {
       throw new NotFoundException('Report not found');
+    }
+
+    if (report.userId) {
+      await this.notificationsService
+        .create({
+          userId: report.userId.toString(),
+          title: 'Your report was updated',
+          message: adminResponse
+            ? `Status: ${status}. ${adminResponse}`
+            : `Your ${report.reportType.replace('-', ' ')} report is now ${status}.`,
+          type: status === 'resolved' ? 'success' : 'info',
+        })
+        .catch(() => undefined);
     }
 
     return report;

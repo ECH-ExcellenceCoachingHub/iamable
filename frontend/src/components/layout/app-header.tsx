@@ -9,6 +9,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { useUIStore } from '@/store/ui-store';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { api } from '@/lib/api';
+import { onNotificationsChanged, setAppBadge, syncPushSubscription } from '@/lib/push';
 import { cn, getInitials } from '@/lib/utils';
 
 const titles: Record<string, string> = {
@@ -124,17 +125,50 @@ function UserMenu() {
 function NotificationBell() {
   const pathname = usePathname();
   const [count, setCount] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     api.notifications
       .getUnreadCount()
-      .then((data: { count?: number }) => !cancelled && setCount(data?.count ?? 0))
+      .then((data: { count?: number }) => {
+        if (cancelled) return;
+        const unread = data?.count ?? 0;
+        setCount(unread);
+        setAppBadge(unread);
+      })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [pathname]);
+  }, [pathname, refreshKey]);
+
+  // Refresh when a push arrives, when the notifications page changes something, when the
+  // tab regains focus, and every minute as a fallback for devices without push.
+  useEffect(() => {
+    const refresh = () => setRefreshKey((k) => k + 1);
+    const onVisible = () => document.visibilityState === 'visible' && refresh();
+    const unsubscribe = onNotificationsChanged(refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    const interval = setInterval(onVisible, 60_000);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Re-link this device's push subscription to the signed-in user, and renew it if the
+  // browser rotates it.
+  useEffect(() => {
+    syncPushSubscription().catch(() => {});
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'push:resubscribe') syncPushSubscription({ renew: true }).catch(() => {});
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, []);
 
   return (
     <Link

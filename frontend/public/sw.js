@@ -71,3 +71,64 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(cacheFirst(request, STATIC_CACHE));
   }
 });
+
+/* ---------- Push notifications ---------- */
+
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data ? event.data.text() : '' };
+  }
+  const title = data.title || 'Am Able';
+  const url = data.url || '/dashboard/notifications';
+
+  event.waitUntil(
+    (async () => {
+      await self.registration.showNotification(title, {
+        body: data.body || '',
+        icon: '/icons/icon-192.png',
+        badge: '/icons/icon-192.png',
+        tag: data.tag,
+        renotify: Boolean(data.tag),
+        requireInteraction: data.type === 'error' || data.type === 'warning',
+        data: { url },
+      });
+      if (typeof data.badgeCount === 'number' && 'setAppBadge' in self.navigator) {
+        self.navigator.setAppBadge(data.badgeCount).catch(() => {});
+      }
+      // Let open tabs refresh their bell count and list without a reload.
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      windows.forEach((client) => client.postMessage({ type: 'notification:received', payload: data }));
+    })()
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || '/dashboard/notifications', self.location.origin).href;
+
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const sameOrigin = windows.filter((c) => new URL(c.url).origin === self.location.origin);
+      const exact = sameOrigin.find((c) => c.url === target);
+      if (exact) return exact.focus();
+      if (sameOrigin[0]) {
+        const client = await sameOrigin[0].focus();
+        return client.navigate ? client.navigate(target) : undefined;
+      }
+      return self.clients.openWindow(target);
+    })()
+  );
+});
+
+// The browser rotated the subscription; ask an open tab to re-register it with the server.
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((windows) => windows.forEach((client) => client.postMessage({ type: 'push:resubscribe' })))
+  );
+});

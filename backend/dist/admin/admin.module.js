@@ -15,6 +15,7 @@ const admin_service_1 = require("./admin.service");
 const report_schema_1 = require("./schemas/report.schema");
 const system_metric_schema_1 = require("./schemas/system-metric.schema");
 const user_schema_1 = require("../users/schemas/user.schema");
+const notifications_module_1 = require("../notifications/notifications.module");
 let AdminModule = class AdminModule {
 };
 exports.AdminModule = AdminModule;
@@ -26,6 +27,7 @@ exports.AdminModule = AdminModule = __decorate([
                 { name: system_metric_schema_1.SystemMetric.name, schema: system_metric_schema_1.SystemMetricSchema },
                 { name: user_schema_1.User.name, schema: user_schema_1.UserSchema },
             ]),
+            notifications_module_1.NotificationsModule,
         ],
         controllers: [admin_controller_1.AdminController, system_metrics_controller_1.SystemMetricsController],
         providers: [admin_service_1.AdminService],

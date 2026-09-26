@@ -249,5 +249,17 @@ export const api = {
     clearAll: () => fetchAPI('/notifications/clear-all', {
       method: 'DELETE',
     }),
+    getPushPublicKey: () => fetchAPI<{ publicKey: string | null; enabled: boolean }>('/notifications/push/public-key'),
+    subscribePush: (subscription: PushSubscriptionJSON) => fetchAPI('/notifications/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(subscription),
+    }),
+    unsubscribePush: (endpoint: string) => fetchAPI('/notifications/push/unsubscribe', {
+      method: 'POST',
+      body: JSON.stringify({ endpoint }),
+    }),
+    sendTestPush: () => fetchAPI<{ devices: number }>('/notifications/push/test', {
+      method: 'POST',
+    }),
   },
 };

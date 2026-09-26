@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle, Bell, CheckCheck, CheckCircle2, Info, Trash2, X, XCircle } from 'lucide-react';
@@ -13,6 +13,8 @@ import { api } from '@/lib/api';
 import { toast } from '@/store/toast-store';
 import { cn, formatRelativeTime, getErrorMessage } from '@/lib/utils';
 import { useApi } from '@/lib/hooks';
+import { notifyNotificationsChanged } from '@/lib/push';
+import { PushSettings } from '@/components/notifications/push-settings';
 
 interface Notification {
   _id: string;
@@ -46,10 +48,24 @@ export default function NotificationsPage() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
 
+  // A push arriving while this page is open shows up in the list straight away.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type !== 'notification:received') return;
+      fetchNotifications()
+        .then((list) => mutate(() => list))
+        .catch(() => {});
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [mutate]);
+
   const markAsRead = async (id: string) => {
     setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, read: true } : n)));
     try {
       await api.notifications.markAsRead(id);
+      notifyNotificationsChanged();
     } catch (err) {
       setNotifications((prev) => prev.map((n) => (n._id === id ? { ...n, read: false } : n)));
       toast.error('Could not update notification', getErrorMessage(err));
@@ -61,6 +77,7 @@ export default function NotificationsPage() {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     try {
       await api.notifications.markAllAsRead();
+      notifyNotificationsChanged();
       toast.success('All notifications marked as read');
     } catch (err) {
       setNotifications(() => previous);
@@ -73,6 +90,7 @@ export default function NotificationsPage() {
     setNotifications((prev) => prev.filter((n) => n._id !== id));
     try {
       await api.notifications.delete(id);
+      notifyNotificationsChanged();
     } catch (err) {
       setNotifications(() => previous);
       toast.error('Could not dismiss notification', getErrorMessage(err));
@@ -84,6 +102,7 @@ export default function NotificationsPage() {
     try {
       await api.notifications.clearAll();
       setNotifications(() => []);
+      notifyNotificationsChanged();
       setConfirmClear(false);
       toast.success('Notifications cleared');
     } catch (err) {
@@ -116,6 +135,8 @@ export default function NotificationsPage() {
           )
         }
       />
+
+      <PushSettings />
 
       <div className="mb-4 inline-flex rounded-xl bg-surface-muted p-1 ring-1 ring-inset ring-border" role="tablist" aria-label="Filter notifications">
         {(['all', 'unread'] as Filter[]).map((f) => (
@@ -190,7 +211,7 @@ export default function NotificationsPage() {
                         <p className="mt-1 text-sm text-muted">{n.message}</p>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {n.link && (
-                            <Link href={n.link} className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">
+                            <Link href={n.link} onClick={() => !n.read && markAsRead(n._id)} className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">
                               View details
                             </Link>
                           )}
