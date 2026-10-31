@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Select } from '@/components/ui/input';
 import { Alert } from '@/components/ui/feedback';
 import { SignPlayer } from '@/components/sign/sign-player';
-import { SPEECH_LANGUAGES, speak, useSpeechRecognition } from '@/lib/speech';
+import { SPEECH_LANGUAGES, isAndroid, speak, useSpeechRecognition } from '@/lib/speech';
 import { useSignEngine } from '@/lib/use-sign-engine';
 import { useTranslationRecorder, type TranslationDraft } from '@/lib/use-translation-recorder';
 import { toast } from '@/store/toast-store';
@@ -124,7 +124,8 @@ export default function VoiceToSignPage() {
   const [lang, setLang] = useState('rw-RW');
   const [saving, setSaving] = useState(false);
   const speech = useSpeechRecognition(lang);
-  const { level, muted: micMuted } = useMicLevel(speech.status === 'listening');
+  // On Android a second mic stream would starve recognition, so the meter stays off there
+  const { level, muted: micMuted } = useMicLevel(speech.status === 'listening' && !isAndroid());
 
   const fullText = `${speech.transcript} ${speech.interim}`.trim();
   const engine = useSignEngine();

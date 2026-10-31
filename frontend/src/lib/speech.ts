@@ -15,6 +15,12 @@ function getRecognitionCtor(): any {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/**
+ * Android Chrome lets only one consumer use the mic at a time, and its `continuous` mode
+ * ends early or returns no match, so there we recognise one phrase per session and restart.
+ */
+export const isAndroid = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+
 const noopSubscribe = () => () => {};
 
 export type RecognitionStatus = 'idle' | 'starting' | 'listening' | 'error';
@@ -42,7 +48,7 @@ export function useSpeechRecognition(lang: string) {
     if (!Ctor) return;
 
     const recognition = new Ctor();
-    recognition.continuous = true;
+    recognition.continuous = !isAndroid();
     recognition.interimResults = true;
     recognition.lang = lang;
 

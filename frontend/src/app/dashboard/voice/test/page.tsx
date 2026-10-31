@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select } from '@/components/ui/input';
 import { Alert } from '@/components/ui/feedback';
-import { SPEECH_LANGUAGES } from '@/lib/speech';
+import { SPEECH_LANGUAGES, isAndroid } from '@/lib/speech';
 import { cn } from '@/lib/utils';
 
 type StepStatus = 'pending' | 'running' | 'pass' | 'warn' | 'fail';
@@ -132,11 +132,17 @@ export default function VoiceTestPage() {
       addLog(`peak level: ${peak.toFixed(1)}`);
       if (peak < 3) {
         update('level', 'fail', `Peak level ${peak.toFixed(1)}: no sound at all.`);
-        return fail(`No sound is reaching the browser from "${track?.label}". The mic is muted, too quiet, or the wrong device. Check Windows Settings → System → Sound → Input.`);
+        return fail(
+          `No sound is reaching the browser from "${track?.label}". The mic is muted, too quiet, or the wrong device. ` +
+            (isAndroid() ? 'Check that no call or other app is using the mic, and that Chrome has microphone permission in Android settings.' : 'Check Windows Settings → System → Sound → Input.')
+        );
       }
       update('level', peak < 10 ? 'warn' : 'pass', `Peak level ${peak.toFixed(1)}${peak < 10 ? ' (very quiet)' : ''}.`);
 
       // 5. Recognition (mic stream is closed first so nothing competes with it)
+      const android = isAndroid();
+      // Android releases the mic asynchronously; starting straight away can capture silence
+      if (android) await wait(800);
       update('recognition', 'running', 'Speak now, for example "hello, how are you"…');
       setPrompt('Speak now: say "hello, how are you"');
       const seen = new Set<string>();
@@ -145,7 +151,7 @@ export default function VoiceTestPage() {
       await new Promise<void>((resolve) => {
         const rec = new Ctor();
         rec.lang = lang;
-        rec.continuous = true;
+        rec.continuous = !android;
         rec.interimResults = true;
         for (const evt of ['start', 'audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend', 'nomatch']) {
           rec.addEventListener(evt, () => {
@@ -194,10 +200,15 @@ export default function VoiceTestPage() {
       if (errorCode === 'not-allowed' || errorCode === 'service-not-allowed') return fail('Speech recognition was blocked by the browser or an extension.');
       if (errorCode === 'audio-capture') return fail('Speech recognition could not open the microphone. Another app may be using it.');
       if (!seen.has('audiostart')) return fail('Speech recognition never started capturing audio. Restart the browser and try again.');
-      if (!seen.has('soundstart'))
+      if (android)
+        return fail(
+          `Step 4 heard you, but Android's speech service returned no words${seen.has('nomatch') ? ' (no match)' : ''}. Run the test again and start speaking as soon as the prompt appears. If it still fails, update or enable the "Google" app and "Speech Recognition & Synthesis from Google" in the Play Store, and check that Chrome is up to date.`
+        );
+      if (!seen.has('soundstart') && /Windows/.test(ua))
         return fail(
           `Step 4 heard you, but speech recognition heard only silence. It is listening to a different microphone: the Windows default input ("${defaultLabel}"). Set your real mic as default in Windows Settings → System → Sound → Input, then reload.`
         );
+      if (!seen.has('soundstart')) return fail('Step 4 heard you, but speech recognition heard only silence. Close other apps that use the microphone and try again.');
       return fail('Speech recognition heard you but returned no words. The speech service may be blocked (VPN, firewall, or browser), or the language does not match what you said.');
     } catch (err: any) {
       addLog(`unexpected error: ${err?.name}: ${err?.message}`);
