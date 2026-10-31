@@ -71,7 +71,11 @@ export function useSpeechRecognition(lang: string) {
           ? 'Microphone access was blocked. Allow it in your browser settings and try again.'
           : event.error === 'network'
             ? 'Speech recognition needs an internet connection.'
-            : 'Speech recognition stopped unexpectedly. Please try again.'
+            : event.error === 'language-not-supported'
+              ? 'This browser can’t recognise the selected language. Try another language or browser.'
+              : event.error === 'audio-capture'
+                ? 'No microphone was found, or another app is using it.'
+                : `Speech recognition stopped unexpectedly (${event.error}). Please try again.`
       );
     };
 
