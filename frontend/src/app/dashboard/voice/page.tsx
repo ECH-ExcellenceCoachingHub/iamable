@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Hand, Mic, MicOff, RotateCcw, Save, Volume2 } from 'lucide-react';
+import Link from 'next/link';
+import { Hand, Mic, MicOff, RotateCcw, Save, Settings, Stethoscope, Volume2 } from 'lucide-react';
 import { PageHeader } from '@/components/layout/app-shell';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select } from '@/components/ui/input';
 import { Alert } from '@/components/ui/feedback';
@@ -14,9 +15,16 @@ import { useTranslationRecorder, type TranslationDraft } from '@/lib/use-transla
 import { toast } from '@/store/toast-store';
 import { cn, getErrorMessage } from '@/lib/utils';
 
-/** Tracks microphone input level (0–100) while `active` is true. */
+/** A live mic that sends only exact zeros for this long is muted by the OS or a hardware key. */
+const SILENT_MS = 3000;
+
+/**
+ * Tracks microphone input level (0–100) while `active` is true, and whether the mic is
+ * muted outside the browser (track reports `muted`, or the signal is pure digital silence).
+ */
 function useMicLevel(active: boolean) {
   const [level, setLevel] = useState(0);
+  const [muted, setMuted] = useState(false);
   const cleanupRef = useRef<() => void>(() => {});
 
   useEffect(() => {
@@ -31,6 +39,14 @@ function useMicLevel(active: boolean) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
+        const track = stream.getAudioTracks()[0];
+        let trackMuted = !!track?.muted;
+        let lastSignal = performance.now();
+        if (track) {
+          track.onmute = () => (trackMuted = true);
+          track.onunmute = () => (trackMuted = false);
+        }
+
         const ctx = new AudioContext();
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
@@ -38,8 +54,12 @@ function useMicLevel(active: boolean) {
         const data = new Uint8Array(analyser.frequencyBinCount);
         const tick = () => {
           analyser.getByteFrequencyData(data);
-          const avg = data.reduce((a, b) => a + b, 0) / data.length;
-          setLevel(Math.min(100, avg * 1.2));
+          const sum = data.reduce((a, b) => a + b, 0);
+          const now = performance.now();
+          // Even a quiet room has a noise floor; exact zeros mean nothing is coming through
+          if (sum > 0) lastSignal = now;
+          setLevel(Math.min(100, (sum / data.length) * 1.2));
+          setMuted(trackMuted || now - lastSignal > SILENT_MS);
           frame = requestAnimationFrame(tick);
         };
         tick();
@@ -58,17 +78,53 @@ function useMicLevel(active: boolean) {
       cleanupRef.current();
       cleanupRef.current = () => {};
       setLevel(0);
+      setMuted(false);
     };
   }, [active]);
 
-  return level;
+  return { level, muted };
+}
+
+/** Explains how to unmute a mic that the browser can open but receives no sound from. */
+function MicMutedHelp() {
+  const isWindows = typeof navigator !== 'undefined' && /Windows/.test(navigator.userAgent);
+  const isMac = typeof navigator !== 'undefined' && /Mac OS X/.test(navigator.userAgent);
+
+  return (
+    <Alert tone="warning" className="space-y-2">
+      <p className="font-semibold">Your microphone is muted or turned off</p>
+      <p>We can&apos;t hear any sound from it. The browser can&apos;t turn it back on, but you can:</p>
+      <ol className="list-decimal space-y-1 pl-5">
+        <li>Press your keyboard&apos;s mic mute key (often F4 or Fn + F4) so its light turns off.</li>
+        {isMac ? (
+          <li>Open System Settings → Sound → Input, select your mic and raise the input volume.</li>
+        ) : (
+          <li>Open Settings → System → Sound → Input, unmute your mic and raise the input volume.</li>
+        )}
+        <li>Unplug and reconnect a headset, or check its own mute switch.</li>
+      </ol>
+      <div className="flex flex-wrap gap-2 pt-1">
+        {isWindows && (
+          <a href="ms-settings:sound" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+            <Settings />
+            Open sound settings
+          </a>
+        )}
+        <Link href="/dashboard/voice/test" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+          <Stethoscope />
+          Run microphone test
+        </Link>
+      </div>
+      <p className="text-xs opacity-80">This message disappears as soon as sound comes through.</p>
+    </Alert>
+  );
 }
 
 export default function VoiceToSignPage() {
   const [lang, setLang] = useState('rw-RW');
   const [saving, setSaving] = useState(false);
   const speech = useSpeechRecognition(lang);
-  const level = useMicLevel(speech.status === 'listening');
+  const { level, muted: micMuted } = useMicLevel(speech.status === 'listening');
 
   const fullText = `${speech.transcript} ${speech.interim}`.trim();
   const engine = useSignEngine();
@@ -128,6 +184,7 @@ export default function VoiceToSignPage() {
               <Alert tone="warning">Speech recognition isn&apos;t supported in this browser. Please use Chrome, Edge or Safari.</Alert>
             )}
             {speech.error && <Alert>{speech.error}</Alert>}
+            {micMuted && <MicMutedHelp />}
 
             <div className="flex flex-col items-center gap-4 rounded-xl bg-gradient-to-br from-brand-50 to-violet-50 px-6 py-8 ring-1 ring-inset ring-brand-100 dark:from-brand-500/10 dark:to-violet-500/10 dark:ring-brand-500/20">
               <div className="relative">
