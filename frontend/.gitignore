@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# vosk speech models (downloaded by scripts/vosk-models.mjs)
+/public/models/

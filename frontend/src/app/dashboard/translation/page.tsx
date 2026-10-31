@@ -444,10 +444,21 @@ export default function SignToTextPage() {
         }
       />
 
-      <div ref={studioRef} className={cn('grid gap-6 lg:grid-cols-5', isFullscreen && 'overflow-auto bg-background p-6')}>
+      <div
+        ref={studioRef}
+        className={cn(
+          'grid gap-6 lg:grid-cols-5',
+          isFullscreen && 'auto-rows-max content-start gap-4 overflow-auto bg-background p-3 sm:gap-6 sm:p-6'
+        )}
+      >
         {/* Camera */}
         <Card className="overflow-hidden lg:col-span-3">
-          <div className="relative aspect-video bg-slate-950">
+          <div
+            className={cn(
+              'relative aspect-[3/4] bg-slate-950 sm:aspect-[4/3] lg:aspect-video',
+              isFullscreen && 'max-h-[75dvh] w-full'
+            )}
+          >
             <video ref={videoRef} className="size-full -scale-x-100 object-cover" playsInline muted aria-label="Camera preview" />
             <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 size-full -scale-x-100 object-cover" aria-hidden="true" />
 
@@ -699,7 +710,7 @@ export default function SignToTextPage() {
                 {speech.listening ? 'Stop listening' : 'Reply by voice'}
               </Button>
             </div>
-            {!speech.supported && <Alert tone="warning">Voice input isn&apos;t supported in this browser. Try Chrome or Edge.</Alert>}
+            {!speech.supported && <Alert tone="warning">Voice input isn&apos;t supported in this browser. Please update it, or use Chrome, Edge, Firefox or Safari.</Alert>}
             {speech.error && <Alert>{speech.error}</Alert>}
             {speech.listening && (
               <p className="flex items-center gap-2 text-sm text-muted" aria-live="polite">

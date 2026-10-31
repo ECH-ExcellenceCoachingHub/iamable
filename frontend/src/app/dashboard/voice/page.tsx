@@ -165,7 +165,15 @@ export default function VoiceToSignPage() {
   };
 
   const statusLabel =
-    speech.status === 'listening' ? 'Listening' : speech.status === 'starting' ? 'Starting…' : speech.status === 'error' ? 'Stopped' : 'Ready';
+    speech.status === 'listening'
+      ? 'Listening'
+      : speech.status === 'starting'
+        ? 'Starting…'
+        : speech.status === 'loading'
+          ? 'Loading speech model (about 40 MB, first time only)…'
+          : speech.status === 'error'
+            ? 'Stopped'
+            : 'Ready';
 
   return (
     <>
@@ -182,7 +190,7 @@ export default function VoiceToSignPage() {
           </CardHeader>
           <CardContent className="space-y-5">
             {!speech.supported && (
-              <Alert tone="warning">Speech recognition isn&apos;t supported in this browser. Please use Chrome, Edge or Safari.</Alert>
+              <Alert tone="warning">Voice input isn&apos;t supported in this browser. Please update it, or use Chrome, Edge, Firefox or Safari.</Alert>
             )}
             {speech.error && <Alert>{speech.error}</Alert>}
             {micMuted && <MicMutedHelp />}
@@ -215,7 +223,7 @@ export default function VoiceToSignPage() {
                     'size-2 rounded-full',
                     speech.status === 'listening'
                       ? 'animate-pulse bg-red-500'
-                      : speech.status === 'starting'
+                      : speech.status === 'starting' || speech.status === 'loading'
                         ? 'animate-pulse bg-amber-500'
                         : speech.status === 'error'
                           ? 'bg-red-500'
@@ -224,6 +232,23 @@ export default function VoiceToSignPage() {
                 />
                 {statusLabel}
               </div>
+              {speech.supported && (
+                <p className="text-center text-xs text-subtle">
+                  {speech.engine === 'browser' ? 'Using browser speech recognition' : 'Using on-device speech recognition (English and French)'}
+                  {speech.canSwitchEngine && (
+                    <>
+                      {' · '}
+                      <button
+                        type="button"
+                        className="font-medium text-brand-600 underline-offset-2 hover:underline dark:text-brand-300"
+                        onClick={() => speech.switchEngine(speech.engine === 'browser' ? 'device' : 'browser')}
+                      >
+                        {speech.engine === 'browser' ? 'Not working? Use on-device' : 'Use browser instead'}
+                      </button>
+                    </>
+                  )}
+                </p>
+              )}
             </div>
 
             <Select label="Language" value={lang} onChange={(e) => setLang(e.target.value)}>

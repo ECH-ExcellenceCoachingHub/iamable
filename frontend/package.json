@@ -3,10 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/vosk-models.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/vosk-models.mjs",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "models:vosk": "node scripts/vosk-models.mjs"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -29,6 +32,7 @@
     "react-dom": "19.2.4",
     "react-hook-form": "^7.77.0",
     "tailwind-merge": "^3.6.0",
+    "vosk-browser": "^0.0.8",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"
   },
